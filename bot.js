@@ -2,8 +2,9 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const { Client, GatewayIntentBits, EmbedBuilder, Events } = require("discord.js");
 
-const DISCORD_BOT_TOKEN = "***REMOVED***";
-const DISCORD_CHANNEL_ID = "1361036932242604135";
+require("dotenv").config();
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
 const app = express();
 app.use(bodyParser.json());
