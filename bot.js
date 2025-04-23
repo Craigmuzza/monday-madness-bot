@@ -18,7 +18,7 @@ require("dotenv").config();
 /* ── env ───────────────────────────────────────────────────────────── */
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
-const GITHUB_PAT   = process.env.GITHUB_PAT;          // optional
+const GITHUB_PAT   = process.env.GITHUB_PAT;          // optional – for auto-commit
 const REPO         = "craigmuzza/monday-madness-bot";
 const BRANCH       = "main";
 const COMMIT_MSG   = "auto: sync data";
@@ -44,7 +44,7 @@ let currentEvent = "default";
 let clanOnlyMode = false;
 
 let registeredNames = new Set();         // lower-case
-let chatKillCounts  = {};                // kills deducted from loot lines
+let chatKillCounts  = {};                // kills deduced from loot lines
 
 const events = {
   default: { deathCounts:{}, lootTotals:{}, gpTotal:{} }
@@ -326,4 +326,3 @@ client.on(Events.MessageCreate, async msg=>{
 
 /* ───────────────────────── start bot ─────────────────────────────── */
 client.login(DISCORD_BOT_TOKEN);
-}
