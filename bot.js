@@ -186,10 +186,15 @@ function processDinkJson(p,res){
   return res.status(204).end();
 }
 
-/* ── start HTTP after Discord is live ─────────────────────────────── */
-client.once("ready",()=>{
+client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
-  app.listen(3000,()=>console.log("HTTP listening on 3000"));
+
+  // Render sets PORT; fallback to 3000 for local dev/curl testing
+  const PORT = process.env.PORT || 3000;
+
+  app.listen(PORT, () =>
+    console.log(`HTTP server listening on ${PORT}`)
+  );
 });
 
 /* ── Discord commands (same as before) ────────────────────────────── */
