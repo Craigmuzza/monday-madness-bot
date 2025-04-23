@@ -156,33 +156,46 @@ app.post("/logLoot",(req,res)=>{
 });
 
 /* -------- /dink ----------------------------------------------------- */
-app.post("/dink",(req,res)=>{
-  const ct=req.headers["content-type"]||"";
+app.post("/dink", (req, res) => {
+  const ct = req.headers["content-type"] || "";
 
-  /* multipart/form-data branch */
-  if(ct.startsWith("multipart/form-data")){
-    const form=new formidable.IncomingForm({ multiples:false });
-    form.parse(req,(err,fields)=>{
-      if(err||!fields.payload) return res.status(400).send("multipart err");
+  /* ── A) multipart/form-data ─────────────── */
+  if (ct.startsWith("multipart/form-data")) {
+    formidable({ multiples: false }).parse(req, (err, fields) => {
+      if (err || !fields.payload) return res.status(400).send("Bad multipart");
 
       let data;
-      try{ data=JSON.parse(fields.payload); }
-      catch{ return res.status(400).send("json err"); }
+      try { data = JSON.parse(fields.payload); }
+      catch { return res.status(400).send("Invalid JSON payload"); }
 
-      return handleDinkJson(data,res);
+      return processDinkJson(data, res);
     });
-    return;
+    return;                                  // ☜ don’t fall through
   }
 
-  /* application/json branch (body already parsed by express.json) */
-  if(typeof req.body==="object") return handleDinkJson(req.body,res);
+  /* ── B) application/json *or* text/plain ─ */
+  let body = req.body;
 
-  /* raw text fallback */
-  if(typeof req.body==="string" && req.body.length){
-    return handleLootLine(req.body,res);
+  // ❶  If body arrived as a Buffer → make it a string
+  if (Buffer.isBuffer(body)) body = body.toString("utf8");
+
+  // ❷  If still a string → try to JSON-parse it
+  if (typeof body === "string") {
+    try { body = JSON.parse(body); }
+    catch { /* leave as raw string */ }
   }
 
-  return res.status(204).end();      // ignore
+  // ❸  JSON object path
+  if (typeof body === "object" && body !== null) {
+    return processDinkJson(body, res);
+  }
+
+  // ❹  raw CC message path
+  if (typeof body === "string" && body.trim().length) {
+    return handleLootLine(body.trim(), res);
+  }
+
+  return res.status(204).end();              // nothing we care about
 });
 
 /* helper : JSON payload from Dink */
