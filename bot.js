@@ -2,7 +2,7 @@
     Monday-Madness Discord bot ─ de-duplication + RuneLite-Dink support
     ──────────────────────────────────────────────────────────────────── */
 const express     = require("express");
-const formidable  = require("formidable");   // ← multipart helper
+const { formidable } = require("formidable"); 
 const { Client, GatewayIntentBits, EmbedBuilder, Events } = require("discord.js");
 const fs          = require("fs");
 const path        = require("path");
