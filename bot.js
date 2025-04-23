@@ -326,3 +326,4 @@ client.on(Events.MessageCreate, async msg=>{
 
 /* ───────────────────────── start bot ─────────────────────────────── */
 client.login(DISCORD_BOT_TOKEN);
+}
