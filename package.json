@@ -13,6 +13,7 @@
     "discord.js": "^14.18.0",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
+    "formidable": "^3.5.4",
     "simple-git": "^3.27.0"
   }
 }
