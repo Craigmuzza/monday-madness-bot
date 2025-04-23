@@ -184,26 +184,32 @@ app.post("/logLoot", (req,res)=>{
 });
 
 /* ---------- /dink (RuneLite Dink webhook) --------------------------- */
-app.post("/dink", (req,res)=>{
-  const p = req.body;
+/* /dink  ─ RuneLite Dink webhook ------------------------------------ */
+app.post("/dink", express.text({ type: "*/*" }), (req, res) => {
+  // If body-parser.json already parsed it we’ll have req.body as an object.
+  // If the header wasn’t application/json we get raw text here (express.text).
+  try {
+    const payload = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
 
-  /* 1️⃣ structured JSON (preferred) */
-  if (
-    p?.type === "CHAT" &&
-    p?.extra?.type === "CLAN_CHAT" &&
-    p.extra.username &&
-    p.extra.target &&
-    typeof p.extra.amount === "number"
-  ){
-    console.log("[DINK] structured", p.extra);
-    return handleLoot(
-      p.extra.username,
-      p.extra.target,
-      p.extra.amount,
-      `STRUCT|${p.extra.username}|${p.extra.target}|${p.extra.amount}`,
-      res
-    );
+    if (
+      payload?.type === "CHAT" &&
+      payload?.extra?.type === "CLAN_CHAT" &&
+      typeof payload.extra.message === "string"
+    ) {
+      return handleLootLine(payload.extra.message, res);
+    }
+  } catch {
+    /* fall-through – not JSON */
   }
+
+  // If it WAS just the raw clan message (plain text):
+  if (typeof req.body === "string") {
+    return handleLootLine(req.body, res);
+  }
+
+  return res.status(204).end();   // anything else is ignored
+});
+
 
   /* 2️⃣ fallback: raw CC text line */
   if (
