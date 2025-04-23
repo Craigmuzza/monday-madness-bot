@@ -332,7 +332,7 @@ client.on(Events.MessageCreate, async (message) => {
   // !help -----------------------------------------------------------------
   if (content === "!help") {
     const embed = new EmbedBuilder()
-      .setTitle("🛠 Monday Madness Bot – Help")
+      .setTitle("🛠 Robo-Rat – Help")
       .addFields(
         { name: "📊 Stats", value: "`!hiscores`, `!lootboard`", inline: false },
         {
