@@ -1,0 +1,437 @@
+[1mdiff --git a/.gitignore b/.gitignore[m
+[1mindex cfe8f18..488d38f 100644[m
+Binary files a/.gitignore and b/.gitignore differ
+[1mdiff --git a/bot.js b/bot.js[m
+[1mindex ae12662..86373b8 100644[m
+[1m--- a/bot.js[m
+[1m+++ b/bot.js[m
+[36m@@ -1,6 +1,5 @@[m
+[31m-// bot.js[m
+[31m-// --------------------------------------------------[m
+[31m-// core libs[m
+[32m+[m[32m// bot.js — “event‑aware” running totals[m
+[32m+[m[32m//--------------------------------------------------[m
+ const express  = require("express");[m
+ const bodyParser = require("body-parser");[m
+ const { Client, GatewayIntentBits, EmbedBuilder, Events } = require("discord.js");[m
+[36m@@ -9,262 +8,233 @@[m [mconst path      = require("path");[m
+ const simpleGit = require("simple-git");[m
+ require("dotenv").config();[m
+ [m
+[31m-// --------------------------------------------------[m
+[31m-// env[m
+[31m-const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;[m
+[32m+[m[32m// ---------- ENV -----------------------------------------------------------------[m
+[32m+[m[32mconst DISCORD_BOT_TOKEN  = process.env.DISCORD_BOT_TOKEN;[m
+ const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;[m
+[31m-const GITHUB_PAT   = process.env.GITHUB_PAT;[m
+[31m-const REPO         = "craigmuzza/monday-madness-bot";[m
+[31m-const BRANCH       = "main";[m
+[31m-const COMMIT_MSG   = "Muz";[m
+[32m+[m[32mconst GITHUB_PAT         = process.env.GITHUB_PAT;          // optional[m
+[32m+[m[32mconst REPO               = "craigmuzza/monday-madness-bot"; // change if needed[m
+[32m+[m[32mconst BRANCH             = "main";[m
+[32m+[m[32mconst COMMIT_MSG         = "auto‑event‑save";[m
+ [m
+[31m-// --------------------------------------------------[m
+[31m-// express[m
+[32m+[m[32m// ---------- EXPRESS -------------------------------------------------------------[m
+ const app = express();[m
+ app.use(bodyParser.json());[m
+ [m
+[31m-// --------------------------------------------------[m
+[31m-// discord client[m
+[32m+[m[32m// ---------- DISCORD -------------------------------------------------------------[m
+ const client = new Client({[m
+[31m-  intents: [[m
+[31m-    GatewayIntentBits.Guilds,[m
+[31m-    GatewayIntentBits.GuildMessages,[m
+[31m-    GatewayIntentBits.MessageContent[m
+[31m-  ][m
+[32m+[m[32m  intents: [GatewayIntentBits.Guilds,[m
+[32m+[m[32m            GatewayIntentBits.GuildMessages,[m
+[32m+[m[32m            GatewayIntentBits.MessageContent][m
+ });[m
+ [m
+[31m-// --------------------------------------------------[m
+[31m-// in‑memory state[m
+[31m-let currentEvent   = "default";[m
+[31m-let clanOnlyMode   = false;[m
+[31m-let registeredNames = new Set();[m
+[31m-let chatKillCounts  = {};                   // kills deduced from loot line[m
+[32m+[m[32m// ---------- STATE ---------------------------------------------------------------[m
+[32m+[m[32mlet currentEvent = "default";[m
+[32m+[m[32mlet clanOnlyMode = false;[m
+[32m+[m[32mlet registered   = new Set();            // saved between restarts[m
+[32m+[m
+ const events = {[m
+[31m-  default: { deathCounts: {}, lootTotals: {}, gpTotal: {} }[m
+[32m+[m[32m  default: { killCounts:{}, deathCounts:{}, lootTotals:{} }[m
+ };[m
+ [m
+[31m-// --------------------------------------------------[m
+[31m-// helpers[m
+[31m-function ci(name) { return name?.toLowerCase(); }     // case‑insensitive key[m
+[31m-[m
+[31m-function getEventData() {[m
+[31m-  if (!events[currentEvent]) {[m
+[31m-    events[currentEvent] = { deathCounts: {}, lootTotals: {}, gpTotal: {} };[m
+[31m-  }[m
+[32m+[m[32m// helper to always return a per‑event object[m
+[32m+[m[32mfunction ev() {[m
+[32m+[m[32m  if (!events[currentEvent])[m
+[32m+[m[32m    events[currentEvent] = { killCounts:{}, deathCounts:{}, lootTotals:{} };[m
+   return events[currentEvent];[m
+ }[m
+ [m
+[31m-function saveJSON(file, dataObj) {[m
+[31m-  const p = path.join(__dirname, file);[m
+[31m-  fs.mkdirSync(path.dirname(p), { recursive: true });[m
+[31m-  fs.writeFileSync(p, JSON.stringify(dataObj, null, 2));[m
+[32m+[m[32m// case‑insensitive key[m
+[32m+[m[32mconst CK = s => s.toLowerCase();[m
+[32m+[m
+[32m+[m[32m// ---------- PERSISTENCE ---------------------------------------------------------[m
+[32m+[m[32mfunction saveJson(file, obj) {[m
+[32m+[m[32m  const fp = path.join(__dirname, file);[m
+[32m+[m[32m  fs.mkdirSync(path.dirname(fp), { recursive:true });[m
+[32m+[m[32m  fs.writeFileSync(fp, JSON.stringify(obj, null, 2));[m
+ }[m
+ [m
+[31m-async function commitToGitHub() {[m
+[31m-  if (!GITHUB_PAT) return;                 // fail‑soft if PAT not supplied[m
+[32m+[m[32masync function gitPush() {[m
+[32m+[m[32m  if (!GITHUB_PAT) return;[m
+   const git = simpleGit();[m
+[31m-  await git.add(".");[m
+[32m+[m[32m  await git.add('.');[m
+   await git.commit(COMMIT_MSG);[m
+   await git.push(`https://craigmuzza:${GITHUB_PAT}@github.com/${REPO}.git`, BRANCH);[m
+ }[m
+ [m
+[31m-// --------------------------------------------------[m
+[31m-// load persistent registered names at start‑up[m
+[32m+[m[32m// load registered names on start[m
+ try {[m
+[31m-  const stored = JSON.parse(fs.readFileSync(path.join(__dirname, "data/registered.json")));[m
+[31m-  if (Array.isArray(stored)) stored.forEach(n => registeredNames.add(ci(n)));[m
+[31m-  console.log(`Loaded ${registeredNames.size} registered clan names`);[m
+[31m-} catch { /* first run – no file yet */ }[m
+[32m+[m[32m  JSON.parse(fs.readFileSync(path.join(__dirname,"data/registered.json")))[m
+[32m+[m[32m      .forEach(n => registered.add(CK(n)));[m
+[32m+[m[32m} catch { /* first run */ }[m
+ [m
+[31m-// --------------------------------------------------[m
+[32m+[m[32m// ---------- REST ENDPOINTS (RuneLite calls) ------------------------------------[m
+ client.once("ready", () => {[m
+[31m-  console.log(`Logged in as ${client.user.tag}`);[m
+[32m+[m[32m  console.log(`Discord ready as ${client.user.tag}`);[m
+ [m
+[31m-  // ---------- /logKill --------------------------------------------------[m
+[31m-  app.post("/logKill", async (req, res) => {[m
+[31m-    const { killer, victim } = req.body || {};[m
+[31m-    if (!killer || !victim) return res.status(400).send("Missing killer or victim");[m
+[32m+[m[32m  // /logKill  (death message sent by PLUGIN)[m
+[32m+[m[32m  app.post("/logKill", async (req,res)=>{[m
+[32m+[m[32m    const { killer, victim } = req.body||{};[m
+[32m+[m[32m    if (!killer||!victim) return res.status(400).send("Missing killer/victim");[m
+ [m
+[31m-    // clan filter[m
+[31m-    if (clanOnlyMode && (!registeredNames.has(ci(killer)) || !registeredNames.has(ci(victim)))) {[m
+[32m+[m[32m    if (clanOnlyMode && (!registered.has(CK(killer))||!registered.has(CK(victim))))[m
+       return res.status(200).send("Ignored non‑clan kill");[m
+[31m-    }[m
+ [m
+[31m-    const { deathCounts } = getEventData();[m
+[31m-    deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;[m
+[32m+[m[32m    ev().deathCounts[CK(victim)] = (ev().deathCounts[CK(victim)]||0)+1;[m
+ [m
+     const embed = new EmbedBuilder()[m
+       .setTitle("💀 Kill Logged")[m
+       .setDescription(`**${killer}** killed **${victim}**`)[m
+[31m-      .addFields({ name: "Total Deaths", value: String(deathCounts[ci(victim)]), inline: true })[m
+[31m-      .setColor(0xFF0000)[m
+[31m-      .setTimestamp();[m
+[32m+[m[32m      .addFields({name:"Victim Deaths", value:String(ev().deathCounts[CK(victim)])})[m
+[32m+[m[32m      .setColor(0xFF0000).setTimestamp();[m
+ [m
+     try {[m
+[31m-      const channel = await client.channels.fetch(DISCORD_CHANNEL_ID);[m
+[31m-      if (channel?.isTextBased()) await channel.send({ embeds:[embed] });[m
+[31m-    } catch(e) { console.error("Discord error while sending kill:", e); }[m
+[31m-[m
+[31m-    res.status(200).send("Kill logged");[m
+[32m+[m[32m      const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);[m
+[32m+[m[32m      if (ch?.isTextBased()) ch.send({embeds:[embed]});[m
+[32m+[m[32m    } catch(e){console.error(e);}[m
+[32m+[m[32m    res.sendStatus(200);[m
+   });[m
+ [m
+[31m-  // ---------- /logLoot --------------------------------------------------[m
+[31m-  app.post("/logLoot", async (req, res) => {[m
+[31m-    const { lootMessage } = req.body || {};[m
+[31m-    if (!lootMessage) return res.status(400).send("Missing loot message");[m
+[32m+[m[32m  // /logLoot  (loot line from PLUGIN)[m
+[32m+[m[32m  app.post("/logLoot", async (req,res)=>{[m
+[32m+[m[32m    const { lootMessage } = req.body||{};[m
+[32m+[m[32m    if (!lootMessage) return res.status(400).send("Missing lootMessage");[m
+ [m
+[31m-    /* FIXED REGEX  – allows any suffix (e.g. 'worth of loot!') */[m
+[31m-    const regex = /(.+?)\s+has\s+defeated\s+(.+?)\s+and\s+received\s+\(([\d,]+)\s+coins\).*/i;[m
+[31m-    const m = lootMessage.match(regex);[m
+[31m-    if (!m) {[m
+[31m-      console.warn("Loot regex did not match:", lootMessage);[m
+[31m-      return res.status(400).send("Invalid loot message format");[m
+[31m-    }[m
+[32m+[m[32m    const m = lootMessage.match(/(.+?) has defeated (.+?) and received \(([\d,]+) coins\)/i);[m
+[32m+[m[32m    if (!m) return res.status(400).send("Bad format");[m
+ [m
+     const [, killer, victim, gpStr] = m;[m
+[31m-    if (clanOnlyMode && (!registeredNames.has(ci(killer)) || !registeredNames.has(ci(victim)))) {[m
+[32m+[m[32m    if (clanOnlyMode && (!registered.has(CK(killer))||!registered.has(CK(victim))))[m
+       return res.status(200).send("Ignored non‑clan loot");[m
+[31m-    }[m
+ [m
+[31m-    const gp = Number(gpStr.replace(/,/g,""));[m
+[31m-    const { lootTotals, gpTotal } = getEventData();[m
+[31m-    lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;[m
+[31m-    gpTotal   [ci(killer)] = (gpTotal   [ci(killer)] || 0) + gp;[m
+[31m-    chatKillCounts[ci(killer)] = (chatKillCounts[ci(killer)] || 0) + 1;[m
+[32m+[m[32m    const gp = +gpStr.replace(/,/g,"");[m
+[32m+[m[32m    ev().killCounts[CK(killer)] = (ev().killCounts[CK(killer)]||0)+1;[m
+[32m+[m[32m    ev().lootTotals[CK(killer)] = (ev().lootTotals[CK(killer)]||0)+gp;[m
+ [m
+     const embed = new EmbedBuilder()[m
+       .setTitle("💰 Loot Detected")[m
+[31m-      .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)[m
+[31m-      .addFields({ name:"Event GP Gained", value: `${lootTotals[ci(killer)].toLocaleString()} coins`, inline: true })[m
+[31m-      .setColor(0xFFD700)[m
+[31m-      .setTimestamp();[m
+[32m+[m[32m      .setDescription(`**${killer}** → **${gp.toLocaleString()} coins**`)[m
+[32m+[m[32m      .addFields({name:"Event GP", value:`${ev().lootTotals[CK(killer)].toLocaleString()} coins`})[m
+[32m+[m[32m      .setColor(0xFFD700).setTimestamp();[m
+ [m
+     try {[m
+[31m-      const channel = await client.channels.fetch(DISCORD_CHANNEL_ID);[m
+[31m-      if (channel?.isTextBased()) await channel.send({ embeds:[embed] });[m
+[31m-    } catch(e) { console.error("Discord error while sending loot:", e); }[m
+[31m-[m
+[31m-    res.status(200).send("Loot logged");[m
+[32m+[m[32m      const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);[m
+[32m+[m[32m      if (ch?.isTextBased()) ch.send({embeds:[embed]});[m
+[32m+[m[32m    } catch(e){console.error(e);}[m
+[32m+[m[32m    res.sendStatus(200);[m
+   });[m
+ [m
+[31m-  // express up[m
+[31m-  app.listen(3000, ()=>console.log("Server listening on 3000"));[m
+[32m+[m[32m  app.listen(3000, ()=>console.log("REST up on 3000"));[m
+ });[m
+ [m
+[31m-// --------------------------------------------------[m
+[31m-// discord command handling[m
+[31m-client.on(Events.MessageCreate, async message => {[m
+[31m-  if (message.author.bot) return;[m
+[32m+[m[32m// ---------- DISCORD COMMANDS ---------------------------------------------------[m
+[32m+[m[32mclient.on(Events.MessageCreate, async msg=>{[m
+[32m+[m[32m  if (msg.author.bot) return;[m
+ [m
+[31m-  const { deathCounts, lootTotals } = getEventData();[m
+[32m+[m[32m  const e   = ev();                 // shorthand[m
+[32m+[m[32m  const cmd = msg.content.trim();[m
+ [m
+[31m-  // ---------- !hiscores[m
+[31m-  if (message.content === "!hiscores") {[m
+[31m-    const scoreboard = Object.entries(chatKillCounts).map(([n,k])=>{[m
+[31m-      const d = deathCounts[n] || 0;[m
+[31m-      const ratio = d===0 ? k : (k/d).toFixed(2);[m
+[31m-      return { n,k,d,ratio };[m
+[31m-    }).sort((a,b)=>b.k-a.k).slice(0,10);[m
+[32m+[m[32m  /* ----- hiscores (per‑event) ----- */[m
+[32m+[m[32m  if (cmd==="!hiscores") {[m
+[32m+[m[32m    const rows = Object.entries(e.killCounts)[m
+[32m+[m[32m      .map(([n,k])=>{[m
+[32m+[m[32m        const d = e.deathCounts[n]||0;[m
+[32m+[m[32m        const kd = d? (k/d).toFixed(2): k;[m
+[32m+[m[32m        return {n,k,d,kd}; })[m
+[32m+[m[32m      .sort((a,b)=>b.k-a.k)[m
+[32m+[m[32m      .slice(0,10);[m
+ [m
+     const embed = new EmbedBuilder()[m
+[31m-      .setTitle("🏆 Monday Madness Hiscores 🏆")[m
+[31m-      .setColor(0xFF0000)[m
+[31m-      .setTimestamp();[m
+[32m+[m[32m      .setTitle(`🏆 Hiscores – ${currentEvent} 🏆`)[m
+[32m+[m[32m      .setColor(0xFF0000).setTimestamp();[m
+ [m
+[31m-    scoreboard.forEach((e,i)=>{[m
+[31m-      embed.addFields({ name:`${i+1}. ${e.n}`, value:`Kills: ${e.k}  Deaths: ${e.d}  K/D: ${e.ratio}`, inline:false });[m
+[31m-    });[m
+[31m-[m
+[31m-    return message.channel.send({ embeds:[embed] });[m
+[32m+[m[32m    rows.forEach((r,i)=>embed.addFields({[m
+[32m+[m[32m      name:`${i+1}. ${r.n}`, value:`Kills: ${r.k}  Deaths: ${r.d}  K/D: ${r.kd}`, inline:false}));[m
+[32m+[m[32m    return msg.channel.send({embeds:[embed]});[m
+   }[m
+ [m
+[31m-  // ---------- !lootboard[m
+[31m-  if (message.content === "!lootboard") {[m
+[31m-    const sorted = Object.entries(lootTotals).sort((a,b)=>b[1]-a[1]).slice(0,10);[m
+[31m-[m
+[32m+[m[32m  /* ----- lootboard (per‑event) ----- */[m
+[32m+[m[32m  if (cmd==="!lootboard") {[m
+[32m+[m[32m    const rows = Object.entries(e.lootTotals).sort((a,b)=>b[1]-a[1]).slice(0,10);[m
+     const embed = new EmbedBuilder()[m
+[31m-      .setTitle("💰 Top Loot Earners 💰")[m
+[31m-      .setColor(0xFF0000)[m
+[31m-      .setTimestamp();[m
+[31m-[m
+[31m-    if (sorted.length===0) embed.setDescription("No loot recorded yet.");[m
+[31m-    else sorted.forEach(([n,gp],i)=>embed.addFields({ name:`${i+1}. ${n}`, value:`${gp.toLocaleString()} coins`, inline:false }));[m
+[31m-[m
+[31m-    return message.channel.send({ embeds:[embed] });[m
+[31m-  }[m
+[32m+[m[32m      .setTitle(`💰 Lootboard – ${currentEvent} 💰`)[m
+[32m+[m[32m      .setColor(0xFF0000).setTimestamp();[m
+ [m
+[31m-  // ---------- !listEvents[m
+[31m-  if (message.content === "!listEvents") {[m
+[31m-    const embed = new EmbedBuilder()[m
+[31m-      .setTitle("📅 Available Events")[m
+[31m-      .setDescription(Object.keys(events).map(e=>`• ${e}${e===currentEvent?" *(current)*":""}`).join("\n"))[m
+[31m-      .setColor(0xFF0000)[m
+[31m-      .setTimestamp();[m
+[31m-    return message.channel.send({ embeds:[embed] });[m
+[32m+[m[32m    if (!rows.length) embed.setDescription("No loot yet.");[m
+[32m+[m[32m    else rows.forEach(([n,gp],i)=>embed.addFields({name:`${i+1}. ${n}`,value:`${gp.toLocaleString()} coins`}));[m
+[32m+[m[32m    return msg.channel.send({embeds:[embed]});[m
+   }[m
+ [m
+[31m-  // ---------- !createEvent[m
+[31m-  if (message.content.startsWith("!createEvent ")) {[m
+[31m-    const name = message.content.slice(13).trim();[m
+[31m-    if (!name || events[name]) return message.reply("Invalid or duplicate event name.");[m
+[31m-    events[name]={ deathCounts:{}, lootTotals:{}, gpTotal:{} };[m
+[32m+[m[32m  /* ----- event management ----- */[m
+[32m+[m[32m  if (cmd.startsWith("!createEvent ")) {[m
+[32m+[m[32m    const name = cmd.slice(13).trim();[m
+[32m+[m[32m    if (!name||events[name]) return msg.reply("Invalid or duplicate.");[m
+[32m+[m[32m    events[name]={killCounts:{},deathCounts:{},lootTotals:{}};[m
+     currentEvent=name;[m
+[31m-    return message.reply(`Event **${name}** created and selected.`);[m
+[32m+[m[32m    return msg.reply(`Event **${name}** started.`);[m
+   }[m
+ [m
+[31m-  // ---------- !finishEvent[m
+[31m-  if (message.content === "!finishEvent") {[m
+[31m-    const file = `events/event_${currentEvent}_${new Date().toISOString().replace(/[:.]/g,"-")}.json`;[m
+[31m-    saveJSON(file, events[currentEvent]);[m
+[31m-    await commitToGitHub();[m
+[32m+[m[32m  if (cmd==="!finishEvent") {[m
+[32m+[m[32m    if (currentEvent==="default") return msg.reply("Not in an event.");[m
+[32m+[m[32m    const finished = events[currentEvent];[m
+[32m+[m[32m    const file = `events/event_${currentEvent}_${Date.now()}.json`;[m
+[32m+[m[32m    saveJson(file, finished);[m
+[32m+[m
+[32m+[m[32m    // merge into default running totals[m
+[32m+[m[32m    ["killCounts","deathCounts","lootTotals"].forEach(key=>{[m
+[32m+[m[32m      for (const [n,v] of Object.entries(finished[key]))[m
+[32m+[m[32m        events.default[key][n]=(events.default[key][n]||0)+v;[m
+[32m+[m[32m    });[m
+[32m+[m
+     delete events[currentEvent];[m
+     currentEvent="default";[m
+[32m+[m[32m    await gitPush();[m
+ [m
+[31m-    const embed = new EmbedBuilder()[m
+[31m-      .setTitle("📦 Event Finalised")[m
+[31m-      .setDescription(`Saved as \`${file}\` and switched back to **default**.`)[m
+[31m-      .setColor(0xFF0000)[m
+[31m-      .setTimestamp();[m
+[31m-    return message.channel.send({ embeds:[embed] });[m
+[32m+[m[32m    const embed=new EmbedBuilder()[m
+[32m+[m[32m      .setTitle("📦 Event finished")[m
+[32m+[m[32m      .setDescription(`Saved \`${file}\` and merged into default totals.`)[m
+[32m+[m[32m      .setColor(0xFF0000).setTimestamp();[m
+[32m+[m[32m    return msg.channel.send({embeds:[embed]});[m
+   }[m
+ [m
+[31m-  // ---------- !register[m
+[31m-  if (message.content.startsWith("!register ")) {[m
+[31m-    const names = message.content.slice(10).split(",").map(s=>ci(s.trim())).filter(Boolean);[m
+[31m-    names.forEach(n=>registeredNames.add(n));[m
+[31m-    saveJSON("data/registered.json", Array.from(registeredNames));[m
+[31m-    await commitToGitHub();[m
+[31m-    return message.reply(`Registered: ${names.join(", ")}`);[m
+[32m+[m[32m  if (cmd==="!listEvents") {[m
+[32m+[m[32m    const embed=new EmbedBuilder()[m
+[32m+[m[32m      .setTitle("📅 Events")[m
+[32m+[m[32m      .setDescription(Object.keys(events).map(e=>`• ${e}${e===currentEvent?" *(current)*":""}`).join("\n"))[m
+[32m+[m[32m      .setColor(0xFF0000).setTimestamp();[m
+[32m+[m[32m    return msg.channel.send({embeds:[embed]});[m
+   }[m
+ [m
+[31m-  // ---------- !unregister[m
+[31m-  if (message.content.startsWith("!unregister ")) {[m
+[31m-    const names = message.content.slice(12).split(",").map(s=>ci(s.trim())).filter(Boolean);[m
+[31m-    names.forEach(n=>registeredNames.delete(n));[m
+[31m-    saveJSON("data/registered.json", Array.from(registeredNames));[m
+[31m-    await commitToGitHub();[m
+[31m-    return message.reply(`Unregistered: ${names.join(", ")}`);[m
+[32m+[m[32m  /* ----- clan registration & toggle ----- */[m
+[32m+[m[32m  if (cmd.startsWith("!register ")) {[m
+[32m+[m[32m    const names = cmd.slice(10).split(",").map(s=>CK(s.trim())).filter(Boolean);[m
+[32m+[m[32m    names.forEach(n=>registered.add(n));[m
+[32m+[m[32m    saveJson("data/registered.json", Array.from(registered));[m
+[32m+[m[32m    await gitPush();[m
+[32m+[m[32m    return msg.reply(`Registered: ${names.join(", ")}`);[m
+   }[m
+[32m+[m[32m  if (cmd.startsWith("!unregister ")) {[m
+[32m+[m[32m    const names = cmd.slice(12).split(",").map(s=>CK(s.trim())).filter(Boolean);[m
+[32m+[m[32m    names.forEach(n=>registered.delete(n));[m
+[32m+[m[32m    saveJson("data/registered.json", Array.from(registered));[m
+[32m+[m[32m    await gitPush();[m
+[32m+[m[32m    return msg.reply(`Unregistered: ${names.join(", ")}`);[m
+[32m+[m[32m  }[m
+[32m+[m[32m  if (cmd==="!clanOnly on")  { clanOnlyMode=true;  return msg.reply("Clan‑only **enabled**."); }[m
+[32m+[m[32m  if (cmd==="!clanOnly off") { clanOnlyMode=false; return msg.reply("Clan‑only **disabled**."); }[m
+ [m
+[31m-  // ---------- !clanOnly[m
+[31m-  if (message.content === "!clanOnly on")  { clanOnlyMode=true;  return message.reply("Clan‑only mode **enabled**."); }[m
+[31m-  if (message.content === "!clanOnly off") { clanOnlyMode=false; return message.reply("Clan‑only mode **disabled**."); }[m
+[31m-[m
+[31m-  // ---------- !help[m
+[31m-  if (message.content === "!help") {[m
+[31m-    const embed = new EmbedBuilder()[m
+[31m-      .setTitle("🛠 Monday Madness Bot – Help")[m
+[32m+[m[32m  /* ----- help ----- */[m
+[32m+[m[32m  if (cmd==="!help") {[m
+[32m+[m[32m    const embed=new EmbedBuilder()[m
+[32m+[m[32m      .setTitle("🛠 Monday Madness Bot – Help")[m
+       .addFields([m
+[31m-        { name:"📊 Stats", value:"`!hiscores`, `!lootboard`", inline:false },[m
+[31m-        { name:"🎯 Events", value:"`!createEvent <name>`, `!finishEvent`, `!listEvents`", inline:false },[m
+[31m-        { name:"👥 Clan",  value:"`!register <names>`, `!unregister <names>`, `!clanOnly on/off`", inline:false },[m
+[31m-        { name:"❓ Help",  value:"`!help`", inline:false }[m
+[31m-      )[m
+[31m-      .setColor(0xFF0000)[m
+[31m-      .setTimestamp();[m
+[31m-    return message.channel.send({ embeds:[embed] });[m
+[32m+[m[32m        {name:"📊 Stats",  value:"`!hiscores`, `!lootboard`", inline:false},[m
+[32m+[m[32m        {name:"🎯 Events", value:"`!createEvent <name>`, `!finishEvent`, `!listEvents`", inline:false},[m
+[32m+[m[32m        {name:"👥 Clan",   value:"`!register <names>`, `!unregister <names>`, `!clanOnly on/off`", inline:false},[m
+[32m+[m[32m        {name:"❓ Help",   value:"`!help`", inline:false})[m
+[32m+[m[32m      .setColor(0xFF0000).setTimestamp();[m
+[32m+[m[32m    return msg.channel.send({embeds:[embed]});[m
+   }[m
+ });[m
+ [m
+[31m-// --------------------------------------------------[m
+[32m+[m[32m// ---------- START --------------------------------------------------------------[m
+ client.login(DISCORD_BOT_TOKEN);[m
+[1mdiff --git a/runelite b/runelite[m
+[1m--- a/runelite[m
+[1m+++ b/runelite[m
+[36m@@ -1 +1 @@[m
+[31m-Subproject commit 8f044e5a75d96e637ef5cfaff6fb79d726a84572[m
+[32m+[m[32mSubproject commit 8f044e5a75d96e637ef5cfaff6fb79d726a84572-dirty[m
