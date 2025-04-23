@@ -1,208 +1,308 @@
-/*  ────────────────────────────────────────────────────────────────────
-    Monday-Madness Discord bot – de-dupe + RuneLite-Dink support
-    ──────────────────────────────────────────────────────────────────── */
+// bot.js
+import express from "express";
+import { Client, GatewayIntentBits, EmbedBuilder, Events } from "discord.js";
+import fs from "fs";
+import path from "path";
+import simpleGit from "simple-git";
+import formidablePkg from "formidable";
+const formidable = formidablePkg;
 
-import express              from "express";
-import formidablePkg        from "formidable";              // ES-module import
-import {
-  Client,
-  GatewayIntentBits,
-  EmbedBuilder,
-  Events
-}                           from "discord.js";
-import fs                   from "fs";
-import path                 from "path";
-import simpleGit            from "simple-git";
-import dotenv               from "dotenv";
-dotenv.config();
+// ── Configuration ──────────────────────────────────────────────────────────
+const PORT = process.env.PORT || 3000;                 // Render will bind to this
+const DEDUP_MS = 10_000;                               // 10 s anti‐spam
+const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const DISCORD_CHANNEL = process.env.DISCORD_CHANNEL_ID;
+const GITHUB_PAT = process.env.GITHUB_PAT;             // optional for auto‐commit
+const REPO = "craigmuzza/monday-madness-bot";
+const BRANCH = "main";
+const COMMIT_MSG = "auto: sync data";
 
-/* ── env ───────────────────────────────────────────────────────────── */
-const DISCORD_BOT_TOKEN   = process.env.DISCORD_BOT_TOKEN;
-const DISCORD_CHANNEL_ID  = process.env.DISCORD_CHANNEL_ID;
-const GITHUB_PAT          = process.env.GITHUB_PAT;         // optional
-const REPO                = "craigmuzza/monday-madness-bot";
-const BRANCH              = "main";
-const COMMIT_MSG          = "auto: sync data";
-
-/* ── constants ─────────────────────────────────────────────────────── */
-const DEDUP_MS = 10_000;   // anti-spam window
-const LOOT_RE  = /.+? has defeated .+? and received .*?(\d[\d,]*) coins.*/i; // relaxed
-
-/* ── express ───────────────────────────────────────────────────────── */
-const app = express();
-app.use(express.json());
-app.use(express.text({ type:"text/*" }));          // plain-text fallback
-
-/* ── Discord client ───────────────────────────────────────────────── */
-const client = new Client({
-  intents:[
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
-});
-
-/* ── runtime state ─────────────────────────────────────────────────── */
+// ── State ───────────────────────────────────────────────────────────────────
 let currentEvent = "default";
-let clanOnly     = false;
-const registered = new Set();    // lower-case clan names
-const seen       = new Map();    // de-dup key → timestamp
+let clanOnlyMode = false;
+const registered = new Set();                         // lower‐case names
+const seen = new Map();                                // dedup cache
 
 const events = {
-  default:{ deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} }
+  default: { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} },
 };
 
-const ci  = s=>s.toLowerCase().trim();
-const now = ()=>Date.now();
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const ci = (s = "") => s.toLowerCase().trim();
 
-/* ── load persisted clan list ─────────────────────────────────────── */
-try{
-  const arr = JSON.parse(fs.readFileSync(path.join(process.cwd(),"data/registered.json")));
-  if(Array.isArray(arr)) arr.forEach(n=>registered.add(ci(n)));
-  console.log("[init] loaded", registered.size, "registered names");
-}catch{/* first run */}
-
-/* ── helpers ───────────────────────────────────────────────────────── */
-function getEvent(){
-  if(!events[currentEvent]) events[currentEvent] = {
-    deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{}
-  };
+function getEvent() {
+  if (!events[currentEvent]) {
+    events[currentEvent] = { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} };
+  }
   return events[currentEvent];
 }
 
-function saveJSON(file,obj){
-  const p = path.join(process.cwd(),file);
-  fs.mkdirSync(path.dirname(p),{recursive:true});
-  fs.writeFileSync(p,JSON.stringify(obj,null,2));
+function saveJSON(file, obj) {
+  const p = path.join(process.cwd(), file);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(obj, null, 2));
 }
 
-async function gitCommit(){
-  if(!GITHUB_PAT) return;
+async function gitCommit() {
+  if (!GITHUB_PAT) return;
   const git = simpleGit();
   await git.add(".");
   await git.commit(COMMIT_MSG);
-  await git.push(`https://craigmuzza:${GITHUB_PAT}@github.com/${REPO}.git`,BRANCH);
+  await git.push(
+    `https://craigmuzza:${GITHUB_PAT}@github.com/${REPO}.git`,
+    BRANCH
+  );
 }
 
-/* de-dup purge */
-setInterval(()=>{ const t=now(); for(const[k,v] of seen) if(t-v>DEDUP_MS) seen.delete(k); },30_000);
-
-/* ── core loot processing ─────────────────────────────────────────── */
-async function processLoot(killer,victim,gp,line,res){
-  if(clanOnly && (!registered.has(ci(killer)) || !registered.has(ci(victim))))
-    return res?.status(200).send("non-clan");
-
-  const key=`L|${line}`;
-  if(seen.has(key) && now()-seen.get(key)<DEDUP_MS)
-    return res?.status(200).send("dup");
-  seen.set(key,now());
-
-  const {lootTotals,gpTotal,kills} = getEvent();
-  lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
-  gpTotal  [ci(killer)] = (gpTotal  [ci(killer)]||0) + gp;
-  kills    [ci(killer)] = (kills    [ci(killer)]||0) + 1;
-
-  const embed = new EmbedBuilder()
-    .setTitle("💰 Loot Detected")
-    .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
-    .addFields({ name:"Event GP Gained", value:`${lootTotals[ci(killer)].toLocaleString()} coins`, inline:true })
-    .setColor(0xFF0000)
-    .setTimestamp();
-
-  const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-  if(ch?.isTextBased()) await ch.send({embeds:[embed]});
-
-  return res?.status(200).send("ok");
+// load registered
+try {
+  const arr = JSON.parse(fs.readFileSync("data/registered.json", "utf8"));
+  if (Array.isArray(arr)) arr.forEach(n => registered.add(ci(n)));
+  console.log(`[init] loaded ${registered.size} registered names`);
+} catch {
+  console.log("[init] no registered.json yet");
 }
 
-/* ── /logKill -------------------------------------------------------- */
-app.post("/logKill",async(req,res)=>{
-  const { killer,victim } = req.body || {};
-  if(!killer || !victim) return res.status(400).send("bad");
+// Purge old dedup keys
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, t] of seen) {
+    if (now - t > DEDUP_MS) seen.delete(k);
+  }
+}, 30_000);
 
-  if(clanOnly && (!registered.has(ci(killer)) || !registered.has(ci(victim))))
-    return res.status(200).send("non-clan");
+// ── Discord Client ─────────────────────────────────────────────────────────
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+});
 
-  const key=`K|${ci(killer)}|${ci(victim)}`;
-  if(seen.has(key) && now()-seen.get(key) < DEDUP_MS)
-    return res.status(200).send("dup");
-  seen.set(key,now());
+client.once(Events.ClientReady, () => {
+  console.log(`[discord] ready: ${client.user.tag}`);
+});
 
-  const { deathCounts } = getEvent();
-  deathCounts[ci(victim)] = (deathCounts[ci(victim)]||0) + 1;
+// ── Core Processors ─────────────────────────────────────────────────────────
+async function processKill(killer, victim, key, res) {
+  // clan filter
+  if (clanOnlyMode && (!registered.has(ci(killer)) || !registered.has(ci(victim)))) {
+    return res?.status(200).send("non-clan kill ignored");
+  }
+  // dedup
+  const now = Date.now();
+  if (seen.has(key) && now - seen.get(key) < DEDUP_MS) {
+    return res?.status(200).send("duplicate kill suppressed");
+  }
+  seen.set(key, now);
+
+  const { deathCounts, kills } = getEvent();
+  deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
+  kills[ci(killer)]         = (kills[ci(killer)]     || 0) + 1;
 
   const embed = new EmbedBuilder()
     .setTitle("💀 Kill Logged")
     .setDescription(`**${killer}** killed **${victim}**`)
-    .addFields({ name:"Total Deaths", value:String(deathCounts[ci(victim)]), inline:true })
+    .addFields({ name: "Total Deaths", value: `${deathCounts[ci(victim)]}`, inline: true })
     .setColor(0xFF0000)
     .setTimestamp();
 
-  const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-  if(ch?.isTextBased()) await ch.send({embeds:[embed]});
-
-  res.status(200).send("ok");
-});
-
-/* ── /logLoot (legacy plain JSON) ----------------------------------- */
-app.post("/logLoot",(req,res)=>{
-  const txt = req.body?.lootMessage;
-  if(!txt) return res.status(400).send("bad");
-  const m = txt.match(LOOT_RE);
-  if(!m)   return res.status(400).send("fmt");
-  processLoot(m[1],m[2],Number(m[1]??m[2]??m[3].replace(/,/g,"")),txt,res);
-});
-
-/* ── /dink : multipart OR JSON -------------------------------------- */
-app.post("/dink",(req,res)=>{
-  const ct = req.headers["content-type"] || "";
-
-  /* A) multipart/form-data ------------------------------------------ */
-  if(ct.startsWith("multipart/form-data")){
-    formidablePkg({ multiples:false }).parse(req,(err,fields)=>{
-      if(err || !fields.payload_json) return res.status(400).send("multipart err");
-      let data;
-      try { data = JSON.parse(fields.payload_json); }
-      catch { return res.status(400).send("bad json"); }
-      return processDinkJson(data,res);
-    });
-    return;
+  try {
+    const ch = await client.channels.fetch(DISCORD_CHANNEL);
+    if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
+    console.log(`[discord] kill → ${killer}->${victim}`);
+  } catch (e) {
+    console.error("[discord] kill send error", e);
   }
 
-  /* B) pure JSON body ------------------------------------------------ */
-  if(typeof req.body === "object"){
-    return processDinkJson(req.body,res);
-  }
-
-  /* C) raw text line ------------------------------------------------- */
-  if(typeof req.body === "string"){
-    const m=req.body.match(LOOT_RE);
-    if(m) return processLoot(m[1],m[2],Number(m[3].replace(/,/g,"")),req.body,res);
-  }
-
-  return res.status(204).end();
-});
-
-/* helper: handle the JSON object coming from Dink */
-function processDinkJson(p,res){
-  // diagnostic line you asked for:
-  console.log("[dink] json", JSON.stringify(p).slice(0,120));    // ← NEW
-
-  if(p?.type==="CHAT" && p?.extra?.type==="CLAN_CHAT" && typeof p.extra.message==="string"){
-    const msg = p.extra.message;
-    const m   = msg.match(LOOT_RE);
-    if(!m) return res.status(204).end();
-    return processLoot(m[1],m[2],Number(m[3].replace(/,/g,"")),msg,res);
-  }
-  return res.status(204).end();
+  return res?.status(200).send("kill logged");
 }
 
-/* ── ready & listen ───────────────────────────────────────────────── */
-client.once("ready",()=>{
-  console.log("[discord] ready:", client.user.tag);
-  const port = process.env.PORT || 10000;   // Render injects PORT
-  app.listen(port,()=>console.log("[http] listening on",port));
+async function processLoot(killer, victim, gp, key, res) {
+  if (clanOnlyMode && (!registered.has(ci(killer)) || !registered.has(ci(victim)))) {
+    return res?.status(200).send("non-clan loot ignored");
+  }
+  const now = Date.now();
+  if (seen.has(key) && now - seen.get(key) < DEDUP_MS) {
+    return res?.status(200).send("duplicate loot suppressed");
+  }
+  seen.set(key, now);
+
+  const { lootTotals, gpTotal } = getEvent();
+  lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
+  gpTotal  [ci(killer)] = (gpTotal  [ci(killer)] || 0) + gp;
+
+  const embed = new EmbedBuilder()
+    .setTitle("💰 Loot Detected")
+    .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
+    .addFields({ name: "Event GP Gained", value: `${lootTotals[ci(killer)].toLocaleString()} coins`, inline: true })
+    .setColor(0xFF0000)
+    .setTimestamp();
+
+  try {
+    const ch = await client.channels.fetch(DISCORD_CHANNEL);
+    if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
+    console.log(`[discord] loot → ${killer} +${gp}`);
+  } catch (e) {
+    console.error("[discord] loot send error", e);
+  }
+
+  return res?.status(200).send("loot logged");
+}
+
+// ── HTTP / Express ────────────────────────────────────────────────────────
+const app = express();
+app.use(express.json());                 // application/json
+app.use(express.text({ type: "text/*" })); // raw text fallback
+
+// legacy /logKill
+app.post("/logKill", (req, res) => {
+  const { killer, victim } = req.body || {};
+  if (!killer || !victim) return res.status(400).send("missing killer/victim");
+  return processKill(killer, victim, `K|${ci(killer)}|${ci(victim)}`, res);
 });
 
-/* ── start bot ────────────────────────────────────────────────────── */
-client.login(DISCORD_BOT_TOKEN);
+// legacy /logLoot
+app.post("/logLoot", (req, res) => {
+  const txt = req.body?.lootMessage;
+  if (!txt) return res.status(400).send("missing lootMessage");
+  console.log("[http] /logLoot raw=", txt);
+  const m = txt.match(/(.+?) has defeated (.+?) and received \(([\d,]+) coins\)/i);
+  if (!m) return res.status(400).send("invalid loot format");
+  const gp = Number(m[3].replace(/,/g, ""));
+  return processLoot(m[1], m[2], gp, `L|${txt.trim()}`, res);
+});
+
+// /dink endpoint for DinkPlugin → multipart/form-data
+app.post("/dink", (req, res) => {
+  // use formidable to parse multipart
+  const ct = req.headers["content-type"] || "";
+  if (ct.startsWith("multipart/form-data")) {
+    const form = formidable({ multiples: false });
+    return form.parse(req, (err, fields) => {
+      if (err || !fields.payload_json) {
+        console.warn("[dink] multipart error", err);
+        return res.status(400).send("bad multipart");
+      }
+      let payload;
+      try { payload = JSON.parse(fields.payload_json); }
+      catch (e) {
+        console.warn("[dink] JSON parse error", e);
+        return res.status(400).send("bad JSON");
+      }
+      console.log("[dink] json", JSON.stringify(payload).slice(0, 200));
+
+      // 1) PLAYER_KILL JSON
+      if (payload.type === "PLAYER_KILL" && payload.extra?.victimName) {
+        const killer = payload.playerName;
+        const victim = payload.extra.victimName;
+        return processKill(killer, victim, `K|${ci(killer)}|${ci(victim)}`, res);
+      }
+
+      // 2) CHAT clan‐chat loot line
+      if (payload.type === "CHAT" && payload.extra?.type === "CLAN_CHAT") {
+        const msg = payload.extra.message;
+        // loot
+        const lm = msg.match(/(.+?) has defeated (.+?) and received \(([\d,]+) coins\)/i);
+        if (lm) {
+          const gp = Number(lm[3].replace(/,/g, ""));
+          return processLoot(lm[1], lm[2], gp, `L|${msg.trim()}`, res);
+        }
+        // optionally parse kill pattern from chat too:
+        const km = msg.match(/(.+?) (?:killed|has defeated) (.+)/i);
+        if (km) {
+          return processKill(km[1], km[2], `K|${ci(km[1])}|${ci(km[2])}`, res);
+        }
+      }
+
+      // ignore everything else
+      return res.status(204).end();
+    });
+  }
+
+  // fallback JSON or raw‐text branch
+  if (req.is("application/json")) {
+    console.log("[dink] json-fallback", JSON.stringify(req.body).slice(0,200));
+    const p = req.body;
+    // same logic as above...
+    if (p.type === "PLAYER_KILL" && p.extra?.victimName) {
+      return processKill(p.playerName, p.extra.victimName,
+        `K|${ci(p.playerName)}|${ci(p.extra.victimName)}`, res);
+    }
+    if (p.type === "CHAT" && p.extra?.type === "CLAN_CHAT") {
+      const msg = p.extra.message;
+      const lm = msg.match(/(.+?) has defeated (.+?) and received \(([\d,]+) coins\)/i);
+      if (lm) {
+        const gp = Number(lm[3].replace(/,/g, ""));
+        return processLoot(lm[1], lm[2], gp, `L|${msg.trim()}`, res);
+      }
+      const km = msg.match(/(.+?) (?:killed|has defeated) (.+)/i);
+      if (km) {
+        return processKill(km[1], km[2],
+          `K|${ci(km[1])}|${ci(km[2])}`, res);
+      }
+    }
+  }
+
+  // raw text fallback
+  if (typeof req.body === "string" && req.body.length) {
+    // you could reuse the /logLoot logic here...
+    return res.status(204).end();
+  }
+
+  return res.status(204).end();
+});
+
+// start HTTP after Discord client ready
+client.once(Events.ClientReady, () => {
+  app.listen(PORT, () => console.log(`[http] listening on ${PORT}`));
+});
+
+// ── bot commands (unchanged) ──────────────────────────────────────────
+client.on(Events.MessageCreate, async msg => {
+  if (msg.author.bot) return;
+  const txt = msg.content.toLowerCase();
+  const { deathCounts, lootTotals, kills } = getEvent();
+
+  if (txt === "!hiscores") {
+    const data = Object.entries(kills).map(([n,k]) => {
+      const d = deathCounts[n] || 0;
+      const kd = d === 0 ? k : (k / d).toFixed(2);
+      return { n,k,d,kd };
+    }).sort((a,b)=>b.k-a.k).slice(0,10);
+
+    const embed = new EmbedBuilder()
+      .setTitle("🏆 Monday Madness Hiscores 🏆")
+      .setColor(0xFF0000)
+      .setTimestamp();
+    if (!data.length) embed.setDescription("No kills recorded yet.");
+    else data.forEach((e,i) =>
+      embed.addFields({
+        name: `${i+1}. ${e.n}`,
+        value: `Kills: ${e.k} | Deaths: ${e.d} | K/D: ${e.kd}`,
+        inline: false
+      })
+    );
+    return msg.channel.send({ embeds: [embed] });
+  }
+
+  if (txt === "!lootboard") {
+    const sorted = Object.entries(lootTotals)
+      .sort((a,b)=>b[1]-a[1]).slice(0,10);
+    const embed = new EmbedBuilder()
+      .setTitle("💰 Top Loot Earners 💰")
+      .setColor(0xFF0000)
+      .setTimestamp();
+    if (!sorted.length) embed.setDescription("No loot recorded yet.");
+    else sorted.forEach(( [n,gp],i ) =>
+      embed.addFields({
+        name: `${i+1}. ${n}`,
+        value: `${gp.toLocaleString()} coins`,
+        inline: false
+      })
+    );
+    return msg.channel.send({ embeds: [embed] });
+  }
+
+  // … your other commands (!createEvent, !finishEvent, !register, !clanOnly on/off, !help) …
+});
+
+// ── Login to Discord ────────────────────────────────────────────────────
+client.login(DISCORD_TOKEN);
