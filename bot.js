@@ -87,28 +87,33 @@ function getEventData() {
 }
 
 // ── Core loot processor ──────────────────────────────────────────────
-async function processLoot(killer, victim, gp, dedupKey, res) {
-  if (
-    clanOnlyMode &&
-    (!registered.has(ci(killer)) || !registered.has(ci(victim)))
-  ) {
-    return res.status(200).send("non-clan ignored");
+async function processLoot(killer, victim, gp, rawLine, res) {
+  console.log("[processLoot] killer:", killer, "victim:", victim, "gp:", gp, "rawLine:", rawLine);
+
+  // clan-only filter
+  if (clanOnlyMode && (!registered.has(ci(killer)) || !registered.has(ci(victim)))) {
+    console.log("[processLoot] skipping non-clan");
+    return res.status(200).send("non-clan");
   }
 
-  if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
+  // de-dup
+  if (seen.has(rawLine) && now() - seen.get(rawLine) < DEDUP_MS) {
+    console.log("[processLoot] skipping duplicate");
     return res.status(200).send("duplicate");
   }
-  seen.set(dedupKey, now());
+  seen.set(rawLine, now());
 
+  // update stats
   const { lootTotals, gpTotal, kills } = getEventData();
   lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
   gpTotal[ci(killer)]    = (gpTotal[ci(killer)]    || 0) + gp;
   kills[ci(killer)]      = (kills[ci(killer)]      || 0) + 1;
 
+  // build embed
   const embed = new EmbedBuilder()
     .setTitle("💰 Loot Detected")
-    // show the exact clan‐chat line, with the 'worth of loot!' suffix
-    .setDescription(dedupKey)
+    // raw clan-chat line verbatim
+    .setDescription(rawLine)
     .addFields({
       name: "Event GP Gained",
       value: `${lootTotals[ci(killer)].toLocaleString()} coins`,
@@ -117,12 +122,32 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     .setColor(0xFF0000)
     .setTimestamp();
 
-  const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-  if (ch?.isTextBased()) {
-    await ch.send({ embeds: [embed] });
+  // send
+  let channel;
+  try {
+    channel = await client.channels.fetch(DISCORD_CHANNEL_ID);
+    console.log("[processLoot] fetched channel", DISCORD_CHANNEL_ID, "->", channel?.id);
+  } catch (e) {
+    console.error("[processLoot] fetch error:", e);
+    return res.status(500).send("channel fetch failed");
   }
+
+  if (!channel || !channel.isTextBased()) {
+    console.error("[processLoot] invalid channel object:", channel);
+    return res.status(500).send("invalid channel");
+  }
+
+  try {
+    await channel.send({ embeds: [embed] });
+    console.log("[processLoot] embed sent!");
+  } catch (e) {
+    console.error("[processLoot] send error:", e);
+    return res.status(500).send("send failed");
+  }
+
   return res.status(200).send("ok");
 }
+
 
 // ── /logKill endpoint ───────────────────────────────────────────────
 app.post("/logKill", async (req, res) => {
