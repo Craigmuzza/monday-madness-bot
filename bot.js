@@ -237,35 +237,56 @@ client.on(Events.MessageCreate, async (msg) => {
   const { deathCounts, lootTotals, kills } = getEventData();
 
   // Hiscores
-  if (text.startsWith("!hiscores")) {
-    const parts = msg.content.split(" ");
-    const target = parts[1]?.toLowerCase().trim();
-    const board = Object.entries(kills)
-      .filter(([n]) => !target || n === target)
+if (text.startsWith("!hiscores")) {
+  const arg = msg.content.slice("!hiscores".length).trim();
+  const board = kills; // from getEventData().kills
+
+  // If no argument, show top 10 as before:
+  if (!arg) {
+    const top = Object.entries(board)
       .map(([n,k]) => {
-        const d = deathCounts[n] || 0;
-        const ratio = d === 0 ? k : (k/d).toFixed(2);
+        const d = deathCounts[n]||0;
+        const ratio = d===0 ? k : (k/d).toFixed(2);
         return { n, k, d, ratio };
       })
-      .sort((a,b) => b.k - a.k)
+      .sort((a,b)=>b.k-a.k)
       .slice(0,10);
 
-    const embed = new EmbedBuilder()
-      .setTitle("🏆 Robo-Rat Hiscores 🏆")
+    const e = new EmbedBuilder()
+      .setTitle("🏆 Hiscores")
       .setColor(0xFF0000)
       .setTimestamp();
 
-    if (board.length === 0) {
-      embed.setDescription(target ? `No data for "${target}".` : "No kills recorded yet.");
-    } else {
-      board.forEach((e,i) =>
-        embed.addFields({
-          name: `${i+1}. ${e.n}`,
-          value: `Kills: ${e.k} | Deaths: ${e.d} | K/D: ${e.ratio}`,
-          inline: false
-        })
-      );
-    }
+    if (!top.length) e.setDescription("No kills recorded yet.");
+    else top.forEach((v,i)=> {
+      e.addFields({
+        name: `${i+1}. ${v.n}`,
+        value: `Kills: ${v.k} | Deaths: ${v.d} | K/D: ${v.ratio}`,
+        inline: false
+      });
+    });
+    return msg.channel.send({ embeds: [e] });
+  }
+
+  // else, look up that exact RSN (case-insensitive)
+  const key = arg.toLowerCase();
+  const killsFor = board[key] || 0;
+  const deathsFor = deathCounts[key] || 0;
+  if (killsFor === 0 && deathsFor === 0) {
+    return msg.reply(`No data for **${arg}**.`);
+  }
+  const kd = deathsFor === 0 ? killsFor : (killsFor/deathsFor).toFixed(2);
+  const single = new EmbedBuilder()
+    .setTitle(`🏆 Hiscores for ${arg}`)
+    .setColor(0xFF0000)
+    .addFields(
+      { name: "Kills", value: String(killsFor), inline: true },
+      { name: "Deaths", value: String(deathsFor), inline: true },
+      { name: "K/D Ratio", value: kd, inline: true }
+    )
+    .setTimestamp();
+  return msg.channel.send({ embeds: [single] });
+}
 
     return msg.channel.send({ embeds: [embed] });
   }
