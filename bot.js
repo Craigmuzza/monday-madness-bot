@@ -105,8 +105,8 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
 
   const { lootTotals, gpTotal, kills } = getEventData();
   lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
-  gpTotal  [ci(killer)]  = (gpTotal[ci(killer)]  || 0) + gp;
-  kills    [ci(killer)]  = (kills[ci(killer)]    || 0) + 1;
+  gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]  || 0) + gp;
+  kills    [ci(killer)]  = (kills[ci(killer)]      || 0) + 1;
 
   const embed = new EmbedBuilder()
     .setTitle("💰 Loot Detected")
@@ -179,7 +179,7 @@ app.post(
   "/dink",
   upload.fields([
     { name: "payload_json", maxCount: 1 },
-    { name: "file",         maxCount: 1 }   // accept optional screenshot field
+    { name: "file",         maxCount: 1 }   // optional screenshot
   ]),
   async (req, res) => {
     // Multer puts text fields in req.body
@@ -198,11 +198,10 @@ app.post(
       return res.status(400).send("bad JSON");
     }
 
-    // log only the clan-chat line
+    // log only the clan-chat line with RSN
+    const rsn = data.playerName;
     const msg = data.extra?.message;
-    if (typeof msg === "string") {
-      console.log("[dink] clan chat message:", msg);
-    }
+    console.log(`[dink] seen by=${rsn} | message=${msg}`);
 
     if (
       data.type === "CHAT" &&
@@ -246,7 +245,7 @@ client.on(Events.MessageCreate, async (msg) => {
       .slice(0,10);
 
     const embed = new EmbedBuilder()
-      .setTitle("🏆 Monday Madness Hiscores 🏆")
+      .setTitle("🏆 Robo-Rat Hiscores 🏆")
       .setColor(0xFF0000)
       .setTimestamp();
 
@@ -356,7 +355,7 @@ client.on(Events.MessageCreate, async (msg) => {
 
   if (text === "!help") {
     const embed = new EmbedBuilder()
-      .setTitle("🛠 Monday Madness Bot – Help")
+      .setTitle("🛠 Robo-Rat – Help")
       .addFields(
         { name:"📊 Stats",  value:"`!hiscores`, `!lootboard`", inline:false },
         { name:"🎯 Events", value:"`!createEvent <name>`, `!finishEvent`, `!listEvents`", inline:false },
