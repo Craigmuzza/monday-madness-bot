@@ -7,17 +7,14 @@ import fs from "fs";
 import path from "path";
 import simpleGit from "simple-git";
 import dotenv from "dotenv";
+
 dotenv.config();
 
-//
-// Fix for ES modules to get __dirname
-//
+// ── Fix for ES modules to get __dirname ───────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-//
-// Environment
-//
+// ── Environment ──────────────────────────────────────────────────────
 const DISCORD_BOT_TOKEN  = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const GITHUB_PAT         = process.env.GITHUB_PAT;
@@ -25,27 +22,19 @@ const REPO               = "craigmuzza/monday-madness-bot";
 const BRANCH             = "main";
 const COMMIT_MSG         = "auto: sync data";
 
-//
-// Constants
-//
-const DEDUP_MS = 10_000; // 10s
+// ── Constants ────────────────────────────────────────────────────────
+const DEDUP_MS = 10_000; // 10 seconds
 const LOOT_RE  = /(.+?)\s+has\s+defeated\s+(.+?)\s+and\s+received\s+\( *([\d,]+) *coins\).*/i;
 
-//
-// Express setup
-//
+// ── Express setup ───────────────────────────────────────────────────
 const app = express();
-app.use(express.json());               // parse application/json
-app.use(express.text({ type: "text/*" })); // parse plain text bodies
+app.use(express.json());                // parse application/json
+app.use(express.text({ type: "text/*" })); // parse plain-text bodies
 
-//
-// Multer for multipart/form-data
-//
-const upload = multer();
+// ── Multer for multipart/form-data ─────────────────────────────────
+const upload = multer().any();          // accept any fields (payload_json + optional file)
 
-//
-// Discord client
-//
+// ── Discord client ──────────────────────────────────────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -54,34 +43,30 @@ const client = new Client({
   ]
 });
 
-//
-// Bot state
-//
+// ── Bot state ────────────────────────────────────────────────────────
 let currentEvent = "default";
 let clanOnlyMode = false;
-const registered = new Set();   // lower-case names
-const seen       = new Map();   // deduplication
+const registered = new Set();           // lower-case clan names
+const seen       = new Map();           // deduplication cache: key → timestamp
 const events     = {
   default: { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} }
 };
 
-const ci  = s => (s||"").toLowerCase().trim();
+const ci  = s => (s || "").toLowerCase().trim();
 const now = () => Date.now();
 
-//
-// Load persisted registrations
-//
+// ── Load persisted registrations ─────────────────────────────────────
 try {
   const arr = JSON.parse(
     fs.readFileSync(path.join(__dirname, "data/registered.json"))
   );
   if (Array.isArray(arr)) arr.forEach(n => registered.add(ci(n)));
   console.log(`[init] loaded ${registered.size} registered names`);
-} catch { /* ignore first run */ }
+} catch {
+  /* first run – ignore */
+}
 
-//
-// GitHub commit helper
-//
+// ── GitHub commit helper ─────────────────────────────────────────────
 async function commitToGitHub() {
   if (!GITHUB_PAT) return;
   const git = simpleGit();
@@ -93,9 +78,7 @@ async function commitToGitHub() {
   );
 }
 
-//
-// Get or initialize current event
-//
+// ── Get or initialize current event data ─────────────────────────────
 function getEventData() {
   if (!events[currentEvent]) {
     events[currentEvent] = { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} };
@@ -103,9 +86,7 @@ function getEventData() {
   return events[currentEvent];
 }
 
-//
-// Core loot processor
-//
+// ── Core loot processor ──────────────────────────────────────────────
 async function processLoot(killer, victim, gp, dedupKey, res) {
   if (
     clanOnlyMode &&
@@ -142,9 +123,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
   return res.status(200).send("ok");
 }
 
-//
-// /logKill endpoint
-//
+// ── /logKill endpoint ───────────────────────────────────────────────
 app.post("/logKill", async (req, res) => {
   const { killer, victim } = req.body || {};
   if (!killer || !victim) return res.status(400).send("bad data");
@@ -179,9 +158,7 @@ app.post("/logKill", async (req, res) => {
   return res.status(200).send("ok");
 });
 
-//
-// /logLoot (legacy HTTP)
-//
+// ── /logLoot (legacy HTTP) ──────────────────────────────────────────
 app.post("/logLoot", (req, res) => {
   const txt = req.body?.lootMessage;
   if (!txt) return res.status(400).send("bad");
@@ -193,12 +170,10 @@ app.post("/logLoot", (req, res) => {
   );
 });
 
-//
-// /dink endpoint (Runelite-Dink multipart/form-data)
-//
+// ── /dink endpoint (RuneLite-Dink multipart/form-data) ─────────────
 app.post(
   "/dink",
-  upload.none(), // parses multipart/form-data, no files
+  upload,
   async (req, res) => {
     const raw = req.body.payload_json;
     if (!raw) return res.status(400).send("no payload_json");
@@ -211,13 +186,10 @@ app.post(
       return res.status(400).send("bad JSON");
     }
 
-    // dump the entire payload
-console.log("[dink] full JSON payload:", JSON.stringify(payload, null, 2));
-
-// and also log the raw clan‐chat message
-if (payload.extra?.message) {
-  console.log("[dink] clan chat message:", payload.extra.message);
-}
+    console.log("[dink] full JSON payload:", JSON.stringify(data, null, 2));
+    if (data.extra?.message) {
+      console.log("[dink] clan chat message:", data.extra.message);
+    }
 
     if (
       data.type === "CHAT" &&
@@ -225,7 +197,7 @@ if (payload.extra?.message) {
       typeof data.extra.message === "string"
     ) {
       const msg = data.extra.message;
-      console.log("[dink] message:", msg);
+      console.log("[dink] message (regex target):", msg);
       const m = msg.match(LOOT_RE);
       if (m) {
         return processLoot(
@@ -234,28 +206,25 @@ if (payload.extra?.message) {
         );
       }
     }
+
     return res.status(204).end();
   }
 );
 
-//
-// Start server after Discord is ready
-//
+// ── Start HTTP after Discord is ready ────────────────────────────────
 client.once("ready", () => {
   console.log(`[discord] ready: ${client.user.tag}`);
   const port = process.env.PORT || 3000;
   app.listen(port, () => console.log(`[http] listening on ${port}`));
 });
 
-//
-// Commands (unchanged — you can insert your !hiscores, !lootboard, etc. here)
-//
+// ── Commands (insert your !hiscores, !lootboard, etc.) ───────────────
 client.on(Events.MessageCreate, async msg => {
   if (msg.author.bot) return;
   const text = msg.content.toLowerCase();
   const { deathCounts, lootTotals, kills } = getEventData();
 
-  // … your command handlers …
+  // … your existing command handlers here …
 });
 
 client.login(DISCORD_BOT_TOKEN);
