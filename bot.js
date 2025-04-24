@@ -73,16 +73,15 @@ try {
 async function commitToGitHub() {
   if (!GITHUB_PAT) return;
   const git = simpleGit();
-  // ensure identity on Render
-  await git.addConfig("user.email", process.env.GIT_COMMIT_EMAIL || "bot@craigmuzza.com");
-  await git.addConfig("user.name",  process.env.GIT_COMMIT_NAME  || "Robo-Rat Bot");
-  await git.add(".");
-  await git.commit(COMMIT_MSG);
-  await git.push(
-    `https://craigmuzza:${GITHUB_PAT}@github.com/${REPO}.git`,
-    BRANCH
-  );
+  try {
+    await git.add(".");
+    await git.commit(COMMIT_MSG);
+    await git.push(`https://craigmuzza:${GITHUB_PAT}@github.com/${REPO}.git`, BRANCH);
+  } catch (err) {
+    console.error("⚠️ GitHub commit failed, continuing without crashing:", err.message);
+  }
 }
+
 
 // ── get or init current event data ─────────────────────────────────
 function getEventData() {
