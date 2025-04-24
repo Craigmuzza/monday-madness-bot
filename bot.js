@@ -211,7 +211,13 @@ app.post(
       return res.status(400).send("bad JSON");
     }
 
-    console.log("[dink] json:", JSON.stringify(data).slice(0, 200));
+    // dump the entire payload
+console.log("[dink] full JSON payload:", JSON.stringify(payload, null, 2));
+
+// and also log the raw clan‐chat message
+if (payload.extra?.message) {
+  console.log("[dink] clan chat message:", payload.extra.message);
+}
 
     if (
       data.type === "CHAT" &&
