@@ -105,14 +105,20 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
 
   const { lootTotals, gpTotal, kills } = getEventData();
   lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
-  gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]  || 0) + gp;
-  kills    [ci(killer)]  = (kills[ci(killer)]      || 0) + 1;
+  gpTotal  [ci(killer)] = (gpTotal  [ci(killer)] || 0) + gp;
+  kills    [ci(killer)] = (kills    [ci(killer)] || 0) + 1;
+
+  // choose field label based on whether in default or a named event
+  const fieldLabel =
+    currentEvent === "default"
+      ? "Total GP Earned"
+      : "Event GP Gained";
 
   const embed = new EmbedBuilder()
     .setTitle("💰 Loot Detected")
     .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
     .addFields({
-      name: "Event GP Gained",
+      name: fieldLabel,
       value: `${lootTotals[ci(killer)].toLocaleString()} coins`,
       inline: true
     })
@@ -179,7 +185,7 @@ app.post(
   "/dink",
   upload.fields([
     { name: "payload_json", maxCount: 1 },
-    { name: "file",         maxCount: 1 }   // optional screenshot
+    { name: "file",         maxCount: 1 }   // accept optional screenshot field
   ]),
   async (req, res) => {
     // Multer puts text fields in req.body
@@ -198,10 +204,12 @@ app.post(
       return res.status(400).send("bad JSON");
     }
 
-    // log only the clan-chat line with RSN
+    // log just the clan chat line
     const rsn = data.playerName;
     const msg = data.extra?.message;
-    console.log(`[dink] seen by=${rsn} | message=${msg}`);
+    if (typeof msg === "string") {
+      console.log(`[dink] seen by=${rsn} | message=${msg}`);
+    }
 
     if (
       data.type === "CHAT" &&
