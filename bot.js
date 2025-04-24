@@ -107,7 +107,8 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
 
   const embed = new EmbedBuilder()
     .setTitle("💰 Loot Detected")
-    .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
+    // show the exact clan‐chat line, with the 'worth of loot!' suffix
+    .setDescription(dedupKey)
     .addFields({
       name: "Event GP Gained",
       value: `${lootTotals[ci(killer)].toLocaleString()} coins`,
