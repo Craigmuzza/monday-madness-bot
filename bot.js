@@ -72,17 +72,21 @@ try {
 // ── commit helper ───────────────────────────────────────────────────
 async function commitToGitHub() {
   if (!GITHUB_PAT) return;
-  try {
-    const git = simpleGit();
-    await git.add(".");
-    await git.commit(COMMIT_MSG);
-    await git.push(
-      `https://craigmuzza:${GITHUB_PAT}@github.com/${REPO}.git`,
-      BRANCH
-    );
-  } catch (e) {
-    console.error("[git] commit error:", e.message);
+
+  const git = simpleGit();
+
+  // configure author identity from env
+  if (process.env.GIT_COMMIT_EMAIL && process.env.GIT_COMMIT_NAME) {
+    await git.addConfig('user.email',  process.env.GIT_COMMIT_EMAIL);
+    await git.addConfig('user.name',   process.env.GIT_COMMIT_NAME);
   }
+
+  await git.add('.');
+  await git.commit(COMMIT_MSG);
+  await git.push(
+    `https://${process.env.GITHUB_ACTOR}:${GITHUB_PAT}@github.com/${REPO}.git`,
+    BRANCH
+  );
 }
 
 // ── get or init current event data ─────────────────────────────────
