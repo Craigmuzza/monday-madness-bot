@@ -21,18 +21,18 @@ const __dirname  = path.dirname(__filename);
 // ── env ─────────────────────────────────────────────────────────────
 const DISCORD_BOT_TOKEN  = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
-const GITHUB_PAT         = process.env.GITHUB_PAT;  // optional
+const GITHUB_PAT         = process.env.GITHUB_PAT;  // optional for GitHub commits
 const REPO               = "craigmuzza/monday-madness-bot";
 const BRANCH             = "main";
 const COMMIT_MSG         = "auto: sync data";
 
 // ── constants ───────────────────────────────────────────────────────
-const DEDUP_MS = 10_000;   // 10s
+const DEDUP_MS = 10_000;   // 10s anti-spam window
 const LOOT_RE  = /(.+?)\s+has\s+defeated\s+(.+?)\s+and\s+received\s+\( *([\d,]+) *coins\).*/i;
 
 // ── express + multer ─────────────────────────────────────────────────
 const app    = express();
-const upload = multer();           // for multipart/form-data
+const upload = multer();  // handles multipart/form-data
 
 app.use(express.json());
 app.use(express.text({ type: "text/*" }));
@@ -49,73 +49,108 @@ const client = new Client({
 // ── bot state ───────────────────────────────────────────────────────
 let currentEvent = "default";
 let clanOnlyMode = false;
-const registered = new Set();  // lower-case names
-const seen       = new Map();  // dedup map
-const events     = {
-  default: { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} }
-};
+const registered = new Set();   // lower-case RSNs
+const seen       = new Map();   // dedup map
+const events     = {};          // will load below
 
 const ci  = s => (s||"").toLowerCase().trim();
 const now = () => Date.now();
 
-// ── load persisted registrations ───────────────────────────────────
-try {
-  const arr = JSON.parse(
-    fs.readFileSync(path.join(__dirname, "data/registered.json"))
-  );
-  if (Array.isArray(arr)) arr.forEach(n => registered.add(ci(n)));
-  console.log(`[init] loaded ${registered.size} registered names`);
-} catch {
-  console.log("[init] no registered.json yet");
+// ── helpers for JSON persistence ───────────────────────────────────
+function loadJSON(relPath, fallback) {
+  try {
+    return JSON.parse(
+      fs.readFileSync(path.join(__dirname, relPath), "utf-8")
+    );
+  } catch {
+    return fallback;
+  }
+}
+function saveJSON(relPath, obj) {
+  const fp = path.join(__dirname, relPath);
+  fs.mkdirSync(path.dirname(fp), { recursive: true });
+  fs.writeFileSync(fp, JSON.stringify(obj, null, 2));
 }
 
-// ── commit helper ───────────────────────────────────────────────────
+// ── load persisted clan registrations ───────────────────────────────
+const regList = loadJSON("data/registered.json", []);
+regList.forEach(n => registered.add(ci(n)));
+console.log(`[init] loaded ${registered.size} registered names`);
+
+// ── load persisted default event stats ─────────────────────────────
+events.default = loadJSON("data/default.json", {
+  deathCounts: {},
+  lootTotals: {},
+  gpTotal: {},
+  kills: {}
+});
+
+// ensure our `currentEvent` always exists
+if (!events[currentEvent]) events[currentEvent] = events.default;
+
+// ── optional GitHub commit helper (errors are caught) ───────────────
 async function commitToGitHub() {
   if (!GITHUB_PAT) return;
-  const git = simpleGit();
   try {
+    const git = simpleGit();
     await git.add(".");
     await git.commit(COMMIT_MSG);
-    await git.push(`https://craigmuzza:${GITHUB_PAT}@github.com/${REPO}.git`, BRANCH);
-  } catch (err) {
-    console.error("⚠️ GitHub commit failed, continuing without crashing:", err.message);
+    await git.push(
+      `https://craigmuzza:${GITHUB_PAT}@github.com/${REPO}.git`,
+      BRANCH
+    );
+  } catch (e) {
+    console.error("Git commit failed:", e.message);
   }
 }
 
-
-// ── get or init current event data ─────────────────────────────────
+// ── get-or-create current event object ──────────────────────────────
 function getEventData() {
   if (!events[currentEvent]) {
-    events[currentEvent] = { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} };
+    events[currentEvent] = {
+      deathCounts: {},
+      lootTotals: {},
+      gpTotal: {},
+      kills: {}
+    };
   }
   return events[currentEvent];
 }
 
 // ── core loot processor ─────────────────────────────────────────────
 async function processLoot(killer, victim, gp, dedupKey, res) {
+  // clan-only filter
   if (
     clanOnlyMode &&
-    (!registered.has(ci(killer)) || !registered.has(ci(victim)))
+    (!registered.has(ci(killer)) ||
+     !registered.has(ci(victim)))
   ) {
     return res.status(200).send("non-clan ignored");
   }
-
+  // de-dup
   if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
     return res.status(200).send("duplicate");
   }
   seen.set(dedupKey, now());
 
-  const { lootTotals, gpTotal, kills } = getEventData();
-  lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
-  gpTotal  [ci(killer)]  = (gpTotal[ci(killer)]  || 0) + gp;
-  kills    [ci(killer)]  = (kills[ci(killer)]    || 0) + 1;
+  // update stats
+  const ev = getEventData();
+  ev.lootTotals[ci(killer)] = (ev.lootTotals[ci(killer)]||0) + gp;
+  ev.gpTotal[ci(killer)]    = (ev.gpTotal[ci(killer)]   ||0) + gp;
+  ev.kills[ci(killer)]      = (ev.kills[ci(killer)]     ||0) + 1;
 
+  // persist default event so it never resets
+  if (currentEvent === "default") {
+    saveJSON("data/default.json", events.default);
+  }
+
+  // send embed
   const embed = new EmbedBuilder()
     .setTitle("💰 Loot Detected")
     .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
     .addFields({
       name: currentEvent === "default" ? "Total GP Earned" : "Event GP Gained",
-      value: `${gpTotal[ci(killer)].toLocaleString()} coins`,
+      value: `${ev.gpTotal[ci(killer)].toLocaleString()} coins`,
       inline: true
     })
     .setColor(0xFF0000)
@@ -130,7 +165,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
   return res.status(200).send("ok");
 }
 
-// ── /logKill ────────────────────────────────────────────────────────
+// ── /logKill endpoint ───────────────────────────────────────────────
 app.post("/logKill", async (req, res) => {
   const { killer, victim } = req.body || {};
   if (!killer || !victim) return res.status(400).send("bad data");
@@ -148,13 +183,18 @@ app.post("/logKill", async (req, res) => {
   }
   seen.set(dupKey, now());
 
-  const { deathCounts } = getEventData();
-  deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
+  const ev = getEventData();
+  ev.deathCounts[ci(victim)] = (ev.deathCounts[ci(victim)] || 0) + 1;
+  if (currentEvent === "default") saveJSON("data/default.json", events.default);
 
   const embed = new EmbedBuilder()
     .setTitle("💀 Kill Logged")
     .setDescription(`**${killer}** killed **${victim}**`)
-    .addFields({ name: "Total Deaths", value: String(deathCounts[ci(victim)]), inline: true })
+    .addFields({
+      name: "Total Deaths",
+      value: String(ev.deathCounts[ci(victim)]),
+      inline: true
+    })
     .setColor(0xFF0000)
     .setTimestamp();
 
@@ -173,15 +213,15 @@ app.post("/logLoot", (req, res) => {
   if (!txt) return res.status(400).send("bad");
   const m = txt.match(LOOT_RE);
   if (!m) return res.status(400).send("fmt");
-  return processLoot(m[1], m[2], Number(m[3].replace(/,/g, "")), txt.trim(), res);
+  return processLoot(m[1], m[2], Number(m[3].replace(/,/g,"")), txt.trim(), res);
 });
 
-// ── /dink (multipart/form-data) ───────────────────────────────────
+// ── /dink (Runelite-Dink multipart) ────────────────────────────────
 app.post(
   "/dink",
   upload.fields([
-    { name: "payload_json", maxCount: 1 },
-    { name: "file",         maxCount: 1 }
+    { name:"payload_json", maxCount:1 },
+    { name:"file",         maxCount:1 }  // optional screenshot
   ]),
   async (req, res) => {
     let raw = req.body.payload_json;
@@ -199,12 +239,14 @@ app.post(
       return res.status(400).send("bad JSON");
     }
 
+    // Log RSN + clan-chat line
     const rsn = data.playerName;
     const msg = data.extra?.message;
     if (typeof msg === "string") {
       console.log(`[dink] seen by=${rsn} | message=${msg}`);
     }
 
+    // match & process
     if (
       data.type === "CHAT" &&
       (data.extra?.type === "CLAN_CHAT" || data.extra?.type === "CLAN_MESSAGE") &&
@@ -213,7 +255,7 @@ app.post(
       const m = msg.match(LOOT_RE);
       if (m) {
         return processLoot(
-          m[1], m[2], Number(m[3].replace(/,/g, "")),
+          m[1], m[2], Number(m[3].replace(/,/g,"")),
           msg.trim(), res
         );
       }
@@ -223,191 +265,166 @@ app.post(
   }
 );
 
-// ── start server after Discord ready ────────────────────────────────
+// ── start HTTP after Discord ready ─────────────────────────────────
 client.once("ready", () => {
   console.log(`[discord] ready: ${client.user.tag}`);
   const port = process.env.PORT || 3000;
   app.listen(port, () => console.log(`[http] listening on ${port}`));
 });
 
-// ── Discord commands ────────────────────────────────────────────────
-client.on(Events.MessageCreate, async (msg) => {
+// ── Discord chat commands ───────────────────────────────────────────
+client.on(Events.MessageCreate, async msg => {
   if (msg.author.bot) return;
-  const text = msg.content.toLowerCase();
-  const { deathCounts, lootTotals, kills } = getEventData();
+  const text = msg.content.trim();
+  const lower = text.toLowerCase();
+  const ev = getEventData();
 
-  // Hiscores
-if (text.startsWith("!hiscores")) {
-  const arg = msg.content.slice("!hiscores".length).trim();
-  const board = kills; // from getEventData().kills
-
-  // If no argument, show top 10 as before:
-  if (!arg) {
-    const top = Object.entries(board)
+  // — Hiscores: !hiscores [optionalName]
+  if (lower.startsWith("!hiscores")) {
+    const parts = text.split(" ").slice(1);
+    const name = parts.join(" ") || null;
+    const board = Object.entries(ev.kills)
+      .filter(([n]) => !name || n === ci(name))
       .map(([n,k]) => {
-        const d = deathCounts[n]||0;
+        const d = ev.deathCounts[n]||0;
         const ratio = d===0 ? k : (k/d).toFixed(2);
-        return { n, k, d, ratio };
+        return { n,k,d,ratio };
       })
       .sort((a,b)=>b.k-a.k)
       .slice(0,10);
-
     const e = new EmbedBuilder()
-      .setTitle("🏆 Hiscores")
+      .setTitle(name ? `🏆 Hiscores for ${name}` : "🏆 Hiscores")
       .setColor(0xFF0000)
       .setTimestamp();
-
-    if (!top.length) e.setDescription("No kills recorded yet.");
-    else top.forEach((v,i)=> {
+    if (!board.length) e.setDescription("No data.");
+    else board.forEach((v,i)=>
       e.addFields({
-        name: `${i+1}. ${v.n}`,
-        value: `Kills: ${v.k} | Deaths: ${v.d} | K/D: ${v.ratio}`,
-        inline: false
-      });
-    });
-    return msg.channel.send({ embeds: [e] });
+        name:`${i+1}. ${v.n}`,
+        value:`Kills: ${v.k} | Deaths: ${v.d} | K/D: ${v.ratio}`,
+        inline:false
+      })
+    );
+    return msg.channel.send({ embeds:[e] });
   }
 
-  // else, look up that exact RSN (case-insensitive)
-  const key = arg.toLowerCase();
-  const killsFor = board[key] || 0;
-  const deathsFor = deathCounts[key] || 0;
-  if (killsFor === 0 && deathsFor === 0) {
-    return msg.reply(`No data for **${arg}**.`);
-  }
-  const kd = deathsFor === 0 ? killsFor : (killsFor/deathsFor).toFixed(2);
-  const single = new EmbedBuilder()
-    .setTitle(`🏆 Hiscores for ${arg}`)
-    .setColor(0xFF0000)
-    .addFields(
-      { name: "Kills", value: String(killsFor), inline: true },
-      { name: "Deaths", value: String(deathsFor), inline: true },
-      { name: "K/D Ratio", value: kd, inline: true }
-    )
-    .setTimestamp();
-  return msg.channel.send({ embeds: [single] });
-}
-
-    return msg.channel.send({ embeds: [embed] });
-  }
-
-  // Lootboard
-  if (text.startsWith("!lootboard")) {
-    const parts = msg.content.split(" ");
-    const target = parts[1]?.toLowerCase().trim();
-    const sorted = Object.entries(lootTotals)
-      .filter(([n]) => !target || n === target)
-      .sort((a,b) => b[1] - a[1])
+  // — Lootboard: !lootboard [optionalName]
+  if (lower.startsWith("!lootboard")) {
+    const parts = text.split(" ").slice(1);
+    const name = parts.join(" ") || null;
+    const sorted = Object.entries(ev.lootTotals)
+      .filter(([n]) => !name || n === ci(name))
+      .sort((a,b)=>b[1]-a[1])
       .slice(0,10);
-
-    const embed = new EmbedBuilder()
-      .setTitle("💰 Top Loot Earners 💰")
+    const e = new EmbedBuilder()
+      .setTitle(name ? `💰 Loot for ${name}` : "💰 Top Loot Earners")
       .setColor(0xFF0000)
       .setTimestamp();
-
-    if (sorted.length === 0) {
-      embed.setDescription(target ? `No data for "${target}".` : "No loot recorded yet.");
-    } else {
-      sorted.forEach(([n,gp],i) =>
-        embed.addFields({
-          name: `${i+1}. ${n}`,
-          value: `${gp.toLocaleString()} coins`,
-          inline: false
-        })
-      );
-    }
-
-    return msg.channel.send({ embeds: [embed] });
+    if (!sorted.length) e.setDescription("No data.");
+    else sorted.forEach(([n,gp],i)=>
+      e.addFields({
+        name:`${i+1}. ${n}`,
+        value:`${gp.toLocaleString()} coins`,
+        inline:false
+      })
+    );
+    return msg.channel.send({ embeds:[e] });
   }
 
-  // List clan registers
-  if (text === "!listclan") {
-    const list = [...registered].join(", ") || "No one registered.";
-    return msg.reply(`Registered clan members: ${list}`);
+  // — List clan members
+  if (lower === "!listclan") {
+    const arr = [...registered];
+    return msg.reply(
+      arr.length
+        ? `Registered clan members: ${arr.join(", ")}`
+        : "No one registered yet."
+    );
   }
 
-  // List events
-  if (text === "!listevents") {
-    const embed = new EmbedBuilder()
-      .setTitle("📅 Available Events")
-      .setDescription(
-        Object.keys(events)
-          .map(e => `• ${e}${e === currentEvent ? " *(current)*" : ""}`)
-          .join("\n")
-      )
-      .setColor(0xFF0000)
-      .setTimestamp();
-    return msg.channel.send({ embeds: [embed] });
-  }
-
-  // Create event
-  if (text.startsWith("!createevent ")) {
-    const name = msg.content.slice(13).trim();
-    if (!name || events[name]) return msg.reply("Invalid or duplicate event name.");
-    events[name] = { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} };
-    currentEvent = name;
-    return msg.reply(`Event **${name}** created and selected.`);
-  }
-
-  // Finish event
-  if (text === "!finishevent") {
-    const file = `events/event_${currentEvent}_${new Date()
-      .toISOString()
-      .replace(/[:.]/g,"-")}.json`;
-    fs.mkdirSync(path.dirname(path.join(__dirname,file)), { recursive:true });
-    fs.writeFileSync(path.join(__dirname,file), JSON.stringify(events[currentEvent], null, 2));
-    await commitToGitHub();
-    delete events[currentEvent];
-    currentEvent = "default";
-    const embed = new EmbedBuilder()
-      .setTitle("📦 Event Finalised")
-      .setDescription(`Saved as \`${file}\` and switched back to **default**.`)
-      .setColor(0xFF0000)
-      .setTimestamp();
-    return msg.channel.send({ embeds: [embed] });
-  }
-
-  // Register names
-  if (text.startsWith("!register ")) {
-    const names = msg.content.slice(10).split(",").map(ci).filter(Boolean);
-    names.forEach(n => registered.add(n));
-    fs.writeFileSync(path.join(__dirname,"data/registered.json"), JSON.stringify([...registered], null, 2));
+  // — Register / Unregister
+  if (lower.startsWith("!register ")) {
+    const names = msg.content
+      .slice(10)
+      .split(",")
+      .map(ci)
+      .filter(Boolean);
+    names.forEach(n=>registered.add(n));
+    saveJSON("data/registered.json", [...registered]);
     await commitToGitHub();
     return msg.reply(`Registered: ${names.join(", ")}`);
   }
-
-  // Unregister names
-  if (text.startsWith("!unregister ")) {
-    const names = msg.content.slice(12).split(",").map(ci).filter(Boolean);
-    names.forEach(n => registered.delete(n));
-    fs.writeFileSync(path.join(__dirname,"data/registered.json"), JSON.stringify([...registered], null, 2));
+  if (lower.startsWith("!unregister ")) {
+    const names = msg.content
+      .slice(12)
+      .split(",")
+      .map(ci)
+      .filter(Boolean);
+    names.forEach(n=>registered.delete(n));
+    saveJSON("data/registered.json", [...registered]);
     await commitToGitHub();
     return msg.reply(`Unregistered: ${names.join(", ")}`);
   }
 
-  // Clan-only on/off
-  if (text === "!clanonly on") {
+  // — Clan-only mode
+  if (lower === "!clanonly on") {
     clanOnlyMode = true;
     return msg.reply("Clan-only mode **enabled**.");
   }
-  if (text === "!clanonly off") {
+  if (lower === "!clanonly off") {
     clanOnlyMode = false;
     return msg.reply("Clan-only mode **disabled**.");
   }
 
-  // Help
-  if (text === "!help") {
-    const embed = new EmbedBuilder()
+  // — Event commands
+  if (lower === "!listevents") {
+    const list = Object.keys(events)
+      .map(e=>`• ${e}${e===currentEvent?" *(current)*":""}`)
+      .join("\n");
+    const e = new EmbedBuilder()
+      .setTitle("📅 Available Events")
+      .setDescription(list)
+      .setColor(0xFF0000)
+      .setTimestamp();
+    return msg.channel.send({ embeds:[e] });
+  }
+  if (lower.startsWith("!createevent ")) {
+    const name = msg.content.slice(13).trim();
+    if (!name || events[name]) return msg.reply("Invalid or duplicate name.");
+    events[name] = { deathCounts:{},lootTotals:{},gpTotal:{},kills:{} };
+    currentEvent = name;
+    return msg.reply(`Event **${name}** created and selected.`);
+  }
+  if (lower === "!finishevent") {
+    const file = `events/event_${currentEvent}_${new Date()
+      .toISOString().replace(/[:.]/g,"-")}.json`;
+    fs.mkdirSync(path.dirname(path.join(__dirname,file)),{recursive:true});
+    fs.writeFileSync(
+      path.join(__dirname,file),
+      JSON.stringify(events[currentEvent],null,2)
+    );
+    await commitToGitHub();
+    delete events[currentEvent];
+    currentEvent = "default";
+    const e = new EmbedBuilder()
+      .setTitle("📦 Event Finalised")
+      .setDescription(`Saved to \`${file}\` and switched back to **default**.`)
+      .setColor(0xFF0000)
+      .setTimestamp();
+    return msg.channel.send({ embeds:[e] });
+  }
+
+  // — Help
+  if (lower === "!help") {
+    const e = new EmbedBuilder()
       .setTitle("🛠 Robo-Rat – Help")
       .addFields(
-        { name:"📊 Stats",  value:"`!hiscores [name]`, `!lootboard [name]`, `!listclan`", inline:false },
-        { name:"🎯 Events", value:"`!createevent <name>`, `!finishevent`, `!listevents`", inline:false },
-        { name:"👥 Clan",   value:"`!register <n1,n2>`, `!unregister <n1,n2>`, `!clanonly on/off`", inline:false },
+        { name:"📊 Stats",  value:"`!hiscores [name]`, `!lootboard [name]`", inline:false },
+        { name:"👥 Clan",   value:"`!listclan`, `!register a,b`, `!unregister a,b`, `!clanonly on/off`", inline:false },
+        { name:"🎯 Events", value:"`!listevents`, `!createevent <name>`, `!finishevent`", inline:false },
         { name:"❓ Help",   value:"`!help`", inline:false }
       )
       .setColor(0xFF0000)
       .setTimestamp();
-    return msg.channel.send({ embeds: [embed] });
+    return msg.channel.send({ embeds:[e] });
   }
 });
 
