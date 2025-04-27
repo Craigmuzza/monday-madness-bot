@@ -345,61 +345,61 @@ client.on(Events.MessageCreate, async msg=>{
   const args=text.split(/\s+/), cmd=args.shift();
 
   try {
-    // ── !hiscores [period] ───────────────────────────────────────
+// ── !hiscores [period] ───────────────────────────────────────
 if (cmd === "!hiscores") {
-  // 1) parse optional period
+  // 1) parse period
   let period = "all";
-  if (args[0] && ["daily", "weekly", "monthly", "all"].includes(args[0].toLowerCase())) {
+  if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
     period = args.shift().toLowerCase();
   }
-
-  // optional name filter
   const nameFilter = args.join(" ").toLowerCase() || null;
 
-  // 2) grab logs
-  const allLog  = filterByPeriod(killLog, period);
-  const clanLog = allLog.filter(e => e.isClan);
+  // 2) overall board
+  const filteredAll = filterByPeriod(killLog, period);
+  const countsAll = {};
+  filteredAll.forEach(({ killer }) => {
+    const k = killer.toLowerCase();
+    if (nameFilter && k !== nameFilter) return;
+    countsAll[k] = (countsAll[k]||0) + 1;
+  });
+  const boardAll = Object.entries(countsAll)
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,10)
+    .map(([n,k],i)=>({ rank:i+1, name:n, kills:k }));
+  const embedAll = new EmbedBuilder()
+    .setTitle(`🏆 Hiscores (${period})`)
+    .setColor(0xFF0000)
+    .setTimestamp();
+  if (!boardAll.length) embedAll.setDescription("No kills in that period.");
+  else boardAll.forEach(e=>
+    embedAll.addFields({ name:`${e.rank}. ${e.name}`, value:`Kills: ${e.kills}`, inline:false })
+  );
+  await msg.channel.send({ embeds:[embedAll] });
 
-  // 3) tally
-  const tally = (log) => {
-    const counts = {};
-    log.forEach(({ killer }) => {
+  // 3) clan-only board—but only during events
+  if (currentEvent !== "default") {
+    const filteredClan = filteredAll.filter(({ killer }) => registered.has(ci(killer)));
+    const countsClan = {};
+    filteredClan.forEach(({ killer }) => {
       const k = killer.toLowerCase();
-      if (nameFilter && k !== nameFilter) return;
-      counts[k] = (counts[k] || 0) + 1;
+      countsClan[k] = (countsClan[k]||0) + 1;
     });
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([name, kills], i) => ({ rank: i + 1, name, kills }));
-  };
-
-  const boardAll  = tally(allLog);
-  const boardClan = tally(clanLog);
-
-  // 4) build embeds
-  const makeEmbed = (title, board) => {
-    const embed = new EmbedBuilder()
-      .setTitle(title)
-      .setColor(0xFF0000)
+    const boardClan = Object.entries(countsClan)
+      .sort((a,b)=>b[1]-a[1])
+      .slice(0,10)
+      .map(([n,k],i)=>({ rank:i+1, name:n, kills:k }));
+    const embedClan = new EmbedBuilder()
+      .setTitle(`👑 Clan Hiscores (${period})`)
+      .setColor(0x00AAFF)
       .setTimestamp();
+    if (!boardClan.length) embedClan.setDescription("No clan-member kills this period.");
+    else boardClan.forEach(e=>
+      embedClan.addFields({ name:`${e.rank}. ${e.name}`, value:`Kills: ${e.kills}`, inline:false })
+    );
+    await msg.channel.send({ embeds:[embedClan] });
+  }
 
-    if (board.length === 0) {
-      embed.setDescription("No kills in that period.");
-    } else {
-      board.forEach(e =>
-        embed.addFields({ name: `${e.rank}. ${e.name}`, value: `Kills: ${e.kills}`, inline: false })
-      );
-    }
-
-    return embed;
-  };
-
-  const embedClan = makeEmbed(`🏆 Clan Hiscores (${period})`, boardClan);
-  const embedAll  = makeEmbed(`🏆 All Hiscores  (${period})`, boardAll);
-
-  // 5) send both together
-  return msg.channel.send({ embeds: [embedClan, embedAll] });
+  return;
 }
 
     if (cmd==="!totalgp"||cmd==="!totalloot") {
@@ -412,32 +412,60 @@ if (cmd === "!hiscores") {
       );
     }
 
-    if (cmd==="!lootboard") {
-      let period="all";
-      if (args[0]&&["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
-        period=args.shift().toLowerCase();
-      }
-      const nameFilter=args.join(" ").toLowerCase()||null;
-      const filtered=filterByPeriod(lootLog,period), sums={};
-      filtered.forEach(({killer,gp})=>{
-        const k=killer.toLowerCase();
-        if (nameFilter&&k!==nameFilter) return;
-        sums[k]=(sums[k]||0)+gp;
-      });
-      const board=Object.entries(sums)
-        .sort((a,b)=>b[1]-a[1])
-        .slice(0,10)
-        .map(([n,gp],i)=>({ rank:i+1,name:n,gp }));
-      const embed=new EmbedBuilder()
-        .setTitle(`💰 Lootboard (${period})`)
-        .setColor(0xFF0000)
-        .setTimestamp();
-      if (!board.length) embed.setDescription("No loot in that period.");
-      else board.forEach(e=>
-        embed.addFields({ name:`${e.rank}. ${e.name}`, value:`${e.gp.toLocaleString()} coins`, inline:false })
-      );
-      return msg.channel.send({ embeds:[embed] });
-    }
+    // ── !lootboard [period] ──────────────────────────────────────
+if (cmd === "!lootboard") {
+  // 1) parse period
+  let period = "all";
+  if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
+    period = args.shift().toLowerCase();
+  }
+
+  // 2) global lootboard
+  const filteredAll = filterByPeriod(lootLog, period);
+  const sumsAll = {};
+  filteredAll.forEach(({ killer, gp }) => {
+    const k = killer.toLowerCase();
+    sumsAll[k] = (sumsAll[k]||0) + gp;
+  });
+  const boardAll = Object.entries(sumsAll)
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,10)
+    .map(([n,gp],i)=>({ rank:i+1, name:n, gp }));
+  const embedAll = new EmbedBuilder()
+    .setTitle(`💰 Lootboard (${period})`)
+    .setColor(0xFF0000)
+    .setTimestamp();
+  if (!boardAll.length) embedAll.setDescription("No loot in that period.");
+  else boardAll.forEach(e=>
+    embedAll.addFields({ name:`${e.rank}. ${e.name}`, value:`${e.gp.toLocaleString()} coins`, inline:false })
+  );
+  await msg.channel.send({ embeds:[embedAll] });
+
+  // 3) clan-only lootboard—but only during events
+  if (currentEvent !== "default") {
+    const filteredClan = filteredAll.filter(({ killer }) => registered.has(ci(killer)));
+    const sumsClan = {};
+    filteredClan.forEach(({ killer, gp }) => {
+      const k = killer.toLowerCase();
+      sumsClan[k] = (sumsClan[k]||0) + gp;
+    });
+    const boardClan = Object.entries(sumsClan)
+      .sort((a,b)=>b[1]-a[1])
+      .slice(0,10)
+      .map(([n,gp],i)=>({ rank:i+1, name:n, gp }));
+    const embedClan = new EmbedBuilder()
+      .setTitle(`👑 Clan Lootboard (${period})`)
+      .setColor(0x00AAFF)
+      .setTimestamp();
+    if (!boardClan.length) embedClan.setDescription("No clan-member loot this period.");
+    else boardClan.forEach(e=>
+      embedClan.addFields({ name:`${e.rank}. ${e.name}`, value:`${e.gp.toLocaleString()} coins`, inline:false })
+    );
+    await msg.channel.send({ embeds:[embedClan] });
+  }
+
+  return;
+}
 
     if (cmd==="!export") {
       const what=args.shift()?.toLowerCase(), period=args.shift()?.toLowerCase()||"all";
