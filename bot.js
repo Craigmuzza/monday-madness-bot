@@ -130,29 +130,41 @@ function checkCooldown(userId) {
 // ── GitHub commit helper ───────────────────────────────────────
 function commitToGitHub() {
   if (!GITHUB_PAT) return;
-  try {
-    // Stage all changes
-    spawnSync("git", ["add", "."], { cwd: __dirname, stdio: "inherit" });
-    // Commit
-    spawnSync(
-      "git",
-      ["commit", "-m", COMMIT_MSG],
-      { cwd: __dirname, stdio: "inherit" }
-    );
-    // Push directly to the token-URL (no origin remotes touched)
-    const url = `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`;
-    spawnSync(
-      "git",
-      ["push", url, BRANCH],
-      { cwd: __dirname, stdio: "inherit" }
-    );
 
-    console.log("[git] Successfully pushed changes");
-  } catch (err) {
-    console.error("[git] Failed to push:", err.message || err);
+  // Stage
+  let res = spawnSync("git", ["add", "."], {
+    cwd: __dirname,
+    stdio: "inherit"
+  });
+  if (res.status !== 0) {
+    console.error("[git] Failed to add changes");
+    return;
   }
-}
 
+  // Commit
+  res = spawnSync("git", ["commit", "-m", COMMIT_MSG], {
+    cwd: __dirname,
+    stdio: "inherit"
+  });
+  if (res.status !== 0) {
+    console.error("[git] Nothing to commit or commit failed");
+    // We can continue to push even if there was nothing new to commit,
+    // but if commit *failed* for another reason, bail out.
+  }
+
+  // Push directly via token URL
+  const url = `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`;
+  res = spawnSync("git", ["push", url, BRANCH], {
+    cwd: __dirname,
+    stdio: "inherit"
+  });
+  if (res.status !== 0) {
+    console.error("[git] Push failed—check your PAT and URL");
+    return;
+  }
+
+  console.log("[git] Successfully pushed changes");
+}
 
 function getEventData() {
   if (!events[currentEvent]) {
