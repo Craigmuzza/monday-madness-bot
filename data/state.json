@@ -1,0 +1,14 @@
+{
+  "currentEvent": "default",
+  "clanOnlyMode": false,
+  "events": {
+    "default": {
+      "deathCounts": {},
+      "lootTotals": {},
+      "gpTotal": {},
+      "kills": {}
+    }
+  },
+  "killLog": [],
+  "lootLog": []
+}
