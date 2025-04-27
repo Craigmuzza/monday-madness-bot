@@ -1,5 +1,6 @@
 // bot.js
 import express from "express";
+import { exec } from "node:child_process";
 import multer from "multer";
 import { fileURLToPath } from "url";
 import {
@@ -127,25 +128,22 @@ function checkCooldown(userId) {
 }
 
 // ── GitHub commit helper ───────────────────────────────────────
-// ── GitHub commit helper ───────────────────────────────────────
 async function commitToGitHub() {
   if (!GITHUB_PAT) return;
-  try {
-    const git = simpleGit();
+  const cmd = [
+    'git add .',
+    `git commit -m "${COMMIT_MSG.replace(/"/g, '\\"')}"`,
+    // push directly with PAT in URL
+    `git push https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git ${BRANCH}`
+  ].join(" && ");
 
-    // Stage and commit all changes
-    await git.add(".");
-    await git.commit(COMMIT_MSG);
-
-    // Push directly using the PAT in the URL
-    await git.push(
-      [`https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`, BRANCH]
-    );
-
-    console.log("[git] Successfully pushed changes");
-  } catch (err) {
-    console.error("[git] Failed to push:", err);
-  }
+  exec(cmd, { cwd: __dirname }, (err, stdout, stderr) => {
+    if (err) {
+      console.error("[git] Failed to push:", stderr || err);
+    } else {
+      console.log("[git] Successfully pushed changes");
+    }
+  });
 }
 
 
