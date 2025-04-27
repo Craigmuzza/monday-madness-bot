@@ -1,8 +1,8 @@
-// bot.js
 import express from "express";
 import { spawnSync } from "child_process";
 import multer from "multer";
 import { fileURLToPath } from "url";
+import path from "path";
 import {
   Client,
   GatewayIntentBits,
@@ -12,13 +12,32 @@ import {
   Collection
 } from "discord.js";
 import fs from "fs";
-import path from "path";
 import dotenv from "dotenv";
 dotenv.config();
 
 // ── __dirname for ESM ────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
+
+// ── Ensure correct origin remote ──────────────────────────────
+;(function fixOrigin() {
+  try {
+    const res = spawnSync("git", [
+      "remote", "set-url", "origin",
+      "https://github.com/Craigmuzza/monday-madness-bot.git"
+    ], {
+      cwd: __dirname,
+      stdio: "inherit"
+    });
+    if (res.status === 0) {
+      console.log("[git] origin remote set to correct URL");
+    } else {
+      console.warn("[git] failed to set origin remote");
+    }
+  } catch (err) {
+    console.error("[git] error setting origin remote:", err);
+  }
+})();
 
 // ── Environment ───────────────────────────────────────────────
 const DISCORD_BOT_TOKEN  = process.env.DISCORD_BOT_TOKEN;
