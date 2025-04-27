@@ -1,6 +1,6 @@
 // bot.js
 import express from "express";
-import { exec } from "node:child_process";
+import { execSync } from "child_process";
 import multer from "multer";
 import { fileURLToPath } from "url";
 import {
@@ -128,24 +128,28 @@ function checkCooldown(userId) {
 }
 
 // ── GitHub commit helper ───────────────────────────────────────
-async function commitToGitHub() {
+function commitToGitHub() {
   if (!GITHUB_PAT) return;
-  const cmd = [
-    'git add .',
-    `git commit -m "${COMMIT_MSG.replace(/"/g, '\\"')}"`,
-    // push directly with PAT in URL
-    `git push https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git ${BRANCH}`
-  ].join(" && ");
+  try {
+    // Build the exact commands, embedding your PAT in the push URL
+    const cmd = [
+      "git add .",
+      `git commit -m "${COMMIT_MSG.replace(/"/g, '\\"')}"`,
+      // Push *directly* to the tokenized HTTPS URL (no 'origin' involved)
+      `git push https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git ${BRANCH}`
+    ].join(" && ");
 
-  exec(cmd, { cwd: __dirname }, (err, stdout, stderr) => {
-    if (err) {
-      console.error("[git] Failed to push:", stderr || err);
-    } else {
-      console.log("[git] Successfully pushed changes");
-    }
-  });
+    // Run synchronously in your repo folder, inherit stdio so you see output
+    execSync(cmd, {
+      cwd: __dirname,
+      stdio: "inherit"
+    });
+
+    console.log("[git] Successfully pushed changes");
+  } catch (err) {
+    console.error("[git] Failed to push:", err.message || err);
+  }
 }
-
 
 function getEventData() {
   if (!events[currentEvent]) {
