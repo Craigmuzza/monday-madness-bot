@@ -133,9 +133,11 @@ async function commitToGitHub() {
     const git = simpleGit();
     await git.add(".");
     await git.commit(COMMIT_MSG);
-    // Update origin URL for token-based auth, then push
-    await git.remote(["set-url", "origin", `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`]);
-    await git.push("origin", BRANCH);
+    // Direct push via HTTPS URL with token
+    await git.push(
+      `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`,
+      BRANCH
+    );
     console.log("[git] Successfully pushed changes");
   } catch (err) {
     console.error("[git] Failed to push:", err);
