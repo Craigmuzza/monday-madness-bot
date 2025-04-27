@@ -25,17 +25,23 @@ const __dirname  = path.dirname(__filename);
     const res = spawnSync("git", [
       "remote", "set-url", "origin",
       "https://github.com/Craigmuzza/monday-madness-bot.git"
-    ], {
-      cwd: __dirname,
-      stdio: "inherit"
-    });
-    if (res.status === 0) {
-      console.log("[git] origin remote set to correct URL");
-    } else {
-      console.warn("[git] failed to set origin remote");
-    }
+    ], { cwd: __dirname, stdio: "inherit" });
+    console.log(res.status === 0
+      ? "[git] origin remote set to correct URL"
+      : "[git] failed to set origin remote");
   } catch (err) {
     console.error("[git] error setting origin remote:", err);
+  }
+})();
+
+// ── Configure Git user for commits (Render doesn’t set these) ─
+;(function setGitIdentity() {
+  try {
+    spawnSync("git", ["config", "user.email", "bot@localhost"], { cwd: __dirname });
+    spawnSync("git", ["config", "user.name",  "Robo-Rat Bot"], { cwd: __dirname });
+    console.log("[git] configured local user.name & user.email");
+  } catch (err) {
+    console.error("[git] error setting git identity:", err);
   }
 })();
 
