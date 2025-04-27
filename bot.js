@@ -127,6 +127,7 @@ function checkCooldown(userId) {
 }
 
 // ── GitHub commit helper ───────────────────────────────────────
+// ── GitHub commit helper ───────────────────────────────────────
 async function commitToGitHub() {
   if (!GITHUB_PAT) return;
   try {
@@ -136,19 +137,17 @@ async function commitToGitHub() {
     await git.add(".");
     await git.commit(COMMIT_MSG);
 
-    // Update the origin remote to use token-based HTTPS authentication
-    await git.remote(
-      ["set-url", "origin", `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`]
+    // Push directly using the PAT in the URL
+    await git.push(
+      [`https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`, BRANCH]
     );
-
-    // Push to origin/main
-    await git.push("origin", BRANCH);
 
     console.log("[git] Successfully pushed changes");
   } catch (err) {
     console.error("[git] Failed to push:", err);
   }
 }
+
 
 function getEventData() {
   if (!events[currentEvent]) {
