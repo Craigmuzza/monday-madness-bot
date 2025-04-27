@@ -200,127 +200,115 @@ function getEventData() {
   return events[currentEvent];
 }
 
-// ── Core processors ───────────────────────────────────────────
-async function processLoot(killer, victim, gp, dedupKey, res) {
-  try {
-    // validation
-    if (!killer || !victim || typeof gp !== "number" || isNaN(gp)) {
-      return res.status(400).send("invalid data");
-    }
+ // ── Core processors ───────────────────────────────────────────
+ async function processLoot(killer, victim, gp, dedupKey, res) {
+   try {
+     if (!killer || !victim || typeof gp !== "number" || isNaN(gp)) {
+       return res.status(400).send("invalid data");
+     }
 
-    // clan-only filtering (if you still want it)
-    if (clanOnlyMode && (!registered.has(ci(killer)) || !registered.has(ci(victim)))) {
-      return res.status(200).send("non-clan ignored");
-    }
+     // dedupe
+     if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
+       return res.status(200).send("duplicate");
+     }
+     seen.set(dedupKey, now());
 
-    // dedupe
-    if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
-      return res.status(200).send("duplicate");
-    }
-    seen.set(dedupKey, now());
+     const { lootTotals, gpTotal, kills } = getEventData();
+     lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
+     gpTotal  [ci(killer)] = (gpTotal  [ci(killer)] || 0) + gp;
+     kills     [ci(killer)] = (kills     [ci(killer)] || 0) + 1;
+     lootLog.push({ killer, gp, timestamp: now() });
 
-    // update stats
-    const { lootTotals, gpTotal, kills } = getEventData();
-    lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
-    gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]  || 0) + gp;
-    kills     [ci(killer)]  = (kills     [ci(killer)]  || 0) + 1;
-    lootLog.push({ killer, gp, timestamp: now() });
+     // detect clan-vs-clan
+     const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
 
-    // detect clan-vs-clan
-    const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
+     // build the embed
+     const embed = new EmbedBuilder()
+       .setTitle(isClan ? "💎 Clan Loot Detected!" : "💰 Loot Detected")
+       .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
+       .addFields({
+         name: isClan ? "Clan GP Earned" :
+               (currentEvent === "default" ? "Total GP Earned" : "Event GP Gained"),
+         value: `${(isClan
+                     ? lootTotals[ci(killer)]
+                     : (currentEvent === "default"
+                        ? gpTotal[ci(killer)]
+                        : lootTotals[ci(killer)])
+                   ).toLocaleString()} coins`,
+         inline: true
+       })
+       .setColor(isClan ? 0x00CC88 : 0xFF0000)
+       .setTimestamp();
 
-    // choose title/color/footer
-    const embed = new EmbedBuilder()
-      .setTitle(isClan ? "💎 Clan Loot Detected!" : "💰 Loot Detected")
-      .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
-      .addFields({
-        name: isClan ? "Clan GP Earned" : (currentEvent === "default" ? "Total GP Earned" : "Event GP Gained"),
-        value: `${(isClan
-                    ? lootTotals[ci(killer)]
-                    : (currentEvent === "default" ? gpTotal[ci(killer)] : lootTotals[ci(killer)])
-                  ).toLocaleString()} coins`,
-        inline: true
-      })
-      .setColor(isClan ? 0x00CC88 : 0xFF0000)
-      .setTimestamp();
+     if (isClan) {
+       embed.setFooter({ text: "🔥 Clan vs Clan action!" });
+     }
 
-    if (isClan) {
-      embed.setFooter({ text: "🔥 Clan vs Clan action!" });
-    }
+     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
+     if (ch?.isTextBased()) {
+       await ch.send({ embeds: [embed] });
+     }
 
-    // send it
-    const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-    if (ch?.isTextBased()) {
-      await ch.send({ embeds: [embed] });
-    }
+     // auto-register the killer
+     registered.add(ci(killer));
 
-    // auto-register the killer
-    registered.add(ci(killer));
+     saveData();
+     return res.status(200).send("ok");
+   } catch (err) {
+     console.error("[processLoot] Error:", err);
+     return res.status(500).send("internal error");
+   }
+ }
 
-    saveData();
-    return res.status(200).send("ok");
-  } catch (err) {
-    console.error("[processLoot] Error:", err);
-    return res.status(500).send("internal error");
-  }
-}
+ async function processKill(killer, victim, dedupKey, res) {
+   try {
+     if (!killer || !victim) {
+       return res.status(400).send("invalid data");
+     }
 
-async function processKill(killer, victim, dedupKey, res) {
-  try {
-    // validation
-    if (!killer || !victim) {
-      return res.status(400).send("invalid data");
-    }
+     // dedupe
+     if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
+       return res.status(200).send("duplicate");
+     }
+     seen.set(dedupKey, now());
 
-    // clan-only filtering (optional)
-    if (clanOnlyMode && (!registered.has(ci(killer)) || !registered.has(ci(victim)))) {
-      return res.status(200).send("non-clan ignored");
-    }
+     const { deathCounts, kills } = getEventData();
+     deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
+     kills[ci(killer)]       = (kills[ci(killer)]   || 0) + 1;
+     killLog.push({ killer, victim, timestamp: now() });
 
-    // dedupe
-    if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
-      return res.status(200).send("duplicate");
-    }
-    seen.set(dedupKey, now());
+     // detect clan-vs-clan
+     const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
 
-    // update stats
-    const { deathCounts, kills } = getEventData();
-    deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
-    kills       [ci(killer)] = (kills       [ci(killer)] || 0) + 1;
-    killLog.push({ killer, victim, timestamp: now() });
+     // build an embed that stands out if it’s a clan kill
+     const embed = new EmbedBuilder()
+       .setTitle(isClan ? "✨ Clan Kill Logged!" : "💀 Kill Logged")
+       .setDescription(`**${killer}** killed **${victim}**`)
+       .addFields({
+         name: "Total Deaths",
+         value: String(deathCounts[ci(victim)]),
+         inline: true
+       })
+       .setColor(isClan ? 0x00CC88 : 0xFF0000)
+       .setTimestamp();
 
-    // detect clan-vs-clan
-    const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
+     if (isClan) {
+       embed.setFooter({ text: "🔥 Clan vs Clan action!" });
+     }
 
-    // build embed
-    const embed = new EmbedBuilder()
-      .setTitle(isClan ? "✨ Clan Kill Logged!" : "💀 Kill Logged")
-      .setDescription(`**${killer}** killed **${victim}**`)
-      .addFields({
-        name: "Total Deaths",
-        value: String(deathCounts[ci(victim)]),
-        inline: true
-      })
-      .setColor(isClan ? 0x00CC88 : 0xFF0000)
-      .setTimestamp();
+     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
+     if (ch?.isTextBased()) {
+       await ch.send({ embeds: [embed] });
+     }
 
-    if (isClan) {
-      embed.setFooter({ text: "🔥 Clan vs Clan action!" });
-    }
+     saveData();
+     return res.status(200).send("ok");
+   } catch (err) {
+     console.error("[processKill] Error:", err);
+     return res.status(500).send("internal error");
+   }
+ }
 
-    // send it
-    const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-    if (ch?.isTextBased()) {
-      await ch.send({ embeds: [embed] });
-    }
-
-    saveData();
-    return res.status(200).send("ok");
-  } catch (err) {
-    console.error("[processKill] Error:", err);
-    return res.status(500).send("internal error");
-  }
-}
 
 // ── HTTP Endpoints ────────────────────────────────────────────
 app.post("/logLoot", (req,res)=> {
