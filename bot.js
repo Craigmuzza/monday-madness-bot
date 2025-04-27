@@ -66,12 +66,12 @@ const now = () => Date.now();
 
 // ── EMBED SENDER ─────────────────────────────────────────────
 function sendEmbed(channel, title, desc, color = 0xFF0000) {
-  const e = new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setTitle(title)
     .setDescription(desc)
     .setColor(color)
     .setTimestamp();
-  return channel.send({ embeds: [e] });
+  return channel.send({ embeds: [embed] });
 }
 
 // ── Data persistence helpers ───────────────────────────────────
@@ -126,18 +126,16 @@ function checkCooldown(userId) {
   return true;
 }
 
-// ── GitHub commit helper (updated authentication) ───────────────
+// ── GitHub commit helper ───────────────────────────────────────
 async function commitToGitHub() {
   if (!GITHUB_PAT) return;
   try {
     const git = simpleGit();
     await git.add(".");
     await git.commit(COMMIT_MSG);
-    // Use token-as-username for HTTPS authentication
-    await git.push(
-      `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`,
-      BRANCH
-    );
+    // Update origin URL for token-based auth, then push
+    await git.remote(["set-url", "origin", `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`]);
+    await git.push("origin", BRANCH);
     console.log("[git] Successfully pushed changes");
   } catch (err) {
     console.error("[git] Failed to push:", err);
@@ -154,7 +152,7 @@ function getEventData() {
 // ── Core processors ───────────────────────────────────────────
 async function processLoot(killer, victim, gp, dedupKey, res) {
   try {
-    if (!killer || !victim || typeof gp !== "number" || isNaN(gp)) {
+    if (!killer || !victim || typeof gp !== 'number' || isNaN(gp)) {
       return res.status(400).send("invalid data");
     }
     if (clanOnlyMode && (!registered.has(ci(killer)) || !registered.has(ci(victim)))) {
@@ -166,9 +164,9 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     seen.set(dedupKey, now());
 
     const { lootTotals, gpTotal, kills } = getEventData();
-    lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
-    gpTotal[ci(killer)]      = (gpTotal[ci(killer)]      || 0) + gp;
-    kills[ci(killer)]        = (kills[ci(killer)]        || 0) + 1;
+    lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
+    gpTotal[ci(killer)]     = (gpTotal[ci(killer)]||0)   + gp;
+    kills[ci(killer)]       = (kills[ci(killer)]||0)     + 1;
 
     lootLog.push({ killer, gp, timestamp: now() });
 
@@ -176,7 +174,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     const embed = new EmbedBuilder()
       .setTitle("💰 Loot Detected")
       .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
-      .addFields({ name: label, value: `${(currentEvent === "default" ? gpTotal[ci(killer)] : lootTotals[ci(killer)]).toLocaleString()} coins`, inline: true })
+      .addFields({ name: label, value: `${(currentEvent==='default'?gpTotal[ci(killer)]:lootTotals[ci(killer)]).toLocaleString()} coins`, inline: true })
       .setColor(0xFF0000)
       .setTimestamp();
 
@@ -193,9 +191,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
 
 async function processKill(killer, victim, dedupKey, res) {
   try {
-    if (!killer || !victim) {
-      return res.status(400).send("invalid data");
-    }
+    if (!killer || !victim) return res.status(400).send("invalid data");
     if (clanOnlyMode && (!registered.has(ci(killer)) || !registered.has(ci(victim)))) {
       return res.status(200).send("non-clan ignored");
     }
@@ -205,8 +201,8 @@ async function processKill(killer, victim, dedupKey, res) {
     seen.set(dedupKey, now());
 
     const { deathCounts, kills } = getEventData();
-    deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
-    kills[ci(killer)]       = (kills[ci(killer)]       || 0) + 1;
+    deathCounts[ci(victim)] = (deathCounts[ci(victim)]||0) + 1;
+    kills[ci(killer)]       = (kills[ci(killer)]   ||0) + 1;
 
     killLog.push({ killer, victim, timestamp: now() });
 
@@ -307,10 +303,10 @@ client.on(Events.MessageCreate, async msg => {
   const text = msg.content.trim();
   const lc   = text.toLowerCase();
   const args = text.split(/\s+/);
-  const cmd  = args.shift().toLowerCase();
+  const cmd  = args.shift();
 
   try {
-    // ── !hiscores [period] ─────────────────────────────────────
+    // ── !hiscores ─────────────────────────────────────────────
     if (cmd === "!hiscores") {
       let period = "all";
       if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
@@ -328,7 +324,6 @@ client.on(Events.MessageCreate, async msg => {
         .sort((a,b)=>b[1]-a[1])
         .slice(0,10)
         .map(([n,k],i)=>({ rank:i+1, name:n, kills:k }));
-
       const embed = new EmbedBuilder()
         .setTitle(`🏆 Hiscores (${period})`)
         .setColor(0xFF0000)
@@ -340,7 +335,7 @@ client.on(Events.MessageCreate, async msg => {
       return msg.channel.send({ embeds: [embed] });
     }
 
-    // ── !totalgp ───────────────────────────────────────────────
+    // ── !totalgp / !totalloot ────────────────────────────────
     if (cmd === "!totalgp" || cmd === "!totalloot") {
       const { gpTotal } = getEventData();
       const totalGP = Object.values(gpTotal).reduce((sum, gp) => sum + gp, 0);
@@ -351,7 +346,7 @@ client.on(Events.MessageCreate, async msg => {
       );
     }
 
-    // ── !lootboard [period] ────────────────────────────────────
+    // ── !lootboard ─────────────────────────────────────────────
     if (cmd === "!lootboard") {
       let period = "all";
       if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
@@ -369,7 +364,6 @@ client.on(Events.MessageCreate, async msg => {
         .sort((a,b)=>b[1]-a[1])
         .slice(0,10)
         .map(([n,gp],i)=>({ rank:i+1, name:n, gp }));
-
       const embed = new EmbedBuilder()
         .setTitle(`💰 Lootboard (${period})`)
         .setColor(0xFF0000)
@@ -381,7 +375,7 @@ client.on(Events.MessageCreate, async msg => {
       return msg.channel.send({ embeds: [embed] });
     }
 
-    // ── !export hiscores|lootboard [period] ───────────────────
+    // ── !export ─────────────────────────────────────────────────
     if (cmd === "!export") {
       const what = args.shift()?.toLowerCase();
       const period = args.shift()?.toLowerCase() || "all";
@@ -391,14 +385,12 @@ client.on(Events.MessageCreate, async msg => {
       let rows, headers;
       if (what === "hiscores") {
         const filtered = filterByPeriod(killLog, period);
-        const counts = {};
-        filtered.forEach(({ killer }) => counts[killer] = (counts[killer]||0) + 1);
+        const counts = {}; filtered.forEach(({killer})=>counts[killer]=(counts[killer]||0)+1);
         rows = Object.entries(counts).map(([n,k])=>({ name:n, kills:k }));
         headers = ["name","kills"];
       } else {
         const filtered = filterByPeriod(lootLog, period);
-        const sums = {};
-        filtered.forEach(({ killer, gp }) => sums[killer] = (sums[killer]||0) + gp);
+        const sums = {}; filtered.forEach(({killer,gp})=>sums[killer]=(sums[killer]||0)+gp);
         rows = Object.entries(sums).map(([n,gp])=>({ name:n, gp }));
         headers = ["name","gp"];
       }
@@ -418,7 +410,7 @@ client.on(Events.MessageCreate, async msg => {
 
     // ── !register / !unregister ────────────────────────────────
     if (cmd === "!register" || cmd === "!unregister") {
-      const names = text.slice(cmd.length + 1).split(",").map(ci).filter(Boolean);
+      const names = text.slice(cmd.length+1).split(",").map(ci).filter(Boolean);
       if (!names.length) {
         return sendEmbed(msg.channel, "⚠️ Error", "Provide one or more comma-separated names.");
       }
@@ -435,19 +427,17 @@ client.on(Events.MessageCreate, async msg => {
       );
     }
 
-    // ── !clanonly on/off ────────────────────────────────────────
+    // ── !clanonly ───────────────────────────────────────────────
     if (lc === "!clanonly on") {
-      clanOnlyMode = true;
-      saveData();
+      clanOnlyMode = true; saveData();
       return sendEmbed(msg.channel, "🔒 Clan-Only Mode", "Now **ON** ✅");
     }
     if (lc === "!clanonly off") {
-      clanOnlyMode = false;
-      saveData();
+      clanOnlyMode = false; saveData();
       return sendEmbed(msg.channel, "🔓 Clan-Only Mode", "Now **OFF** ❌");
     }
 
-    // ── Event commands ─────────────────────────────────────────
+    // ── Events ─────────────────────────────────────────────────
     if (lc === "!listevents") {
       return sendEmbed(
         msg.channel,
@@ -462,36 +452,33 @@ client.on(Events.MessageCreate, async msg => {
       if (!name || events[name]) {
         return sendEmbed(msg.channel, "⚠️ Event Error", "Invalid or duplicate event name.");
       }
-      events[name] = { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} };
-      currentEvent = name;
-      saveData();
+      events[name] = { deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} };
+      currentEvent = name; saveData();
       return sendEmbed(msg.channel, "📅 Event Created", `**${name}** is now the current event.`);
     }
     if (lc === "!finishevent") {
-      const file = `events/event_${currentEvent}_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      const file = `events/event_${currentEvent}_${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
       fs.mkdirSync(path.dirname(path.join(__dirname, file)), { recursive: true });
-      fs.writeFileSync(path.join(__dirname, file), JSON.stringify(events[currentEvent], null, 2));
+      fs.writeFileSync(path.join(__dirname,file), JSON.stringify(events[currentEvent], null,2));
       await commitToGitHub();
-      delete events[currentEvent];
-      currentEvent = "default";
-      saveData();
+      delete events[currentEvent]; currentEvent="default"; saveData();
       return sendEmbed(msg.channel, "✅ Event Finished", `Saved to \`${file}\`, back to **default**.`);
     }
 
     // ── !help ───────────────────────────────────────────────────
     if (lc === "!help") {
-      const embed = new EmbedBuilder()
+      const help = new EmbedBuilder()
         .setTitle("🛠 Robo-Rat Help")
         .setColor(0xFF0000)
         .setTimestamp()
-        .addFields(
-          { name: "Stats",       value: "`!hiscores [daily|weekly|monthly|all] [name]`\n`!lootboard [period] [name]`\n`!totalgp`", inline: false },
-          { name: "Export CSV",   value: "`!export hiscores|lootboard [period]`", inline: false },
-          { name: "Clan",         value: "`!register <n1,n2>`\n`!unregister <n1,n2>`\n`!listclan`\n`!clanonly on/off`", inline: false },
-          { name: "Events",       value: "`!createevent <name>`\n`!finishevent`\n`!listevents`", inline: false },
-          { name: "Misc",         value: "`!help`", inline: false }
-        );
-      return msg.channel.send({ embeds: [embed] });
+        .addFields([
+          { name: "Stats", value: "`!hiscores [daily|weekly|monthly|all] [name]`\n`!lootboard [period] [name]`\n`!totalgp`", inline: false },
+          { name: "Export CSV", value: "`!export hiscores|lootboard [period]`", inline: false },
+          { name: "Clan", value: "`!register <n1,n2>`\n`!unregister <n1,n2>`\n`!listclan`\n`!clanonly on/off`", inline: false },
+          { name: "Events", value: "`!createevent <name>`\n`!finishevent`\n`!listevents`", inline: false },
+          { name: "Misc", value: "`!help`", inline: false }
+        ]);
+      return msg.channel.send({ embeds: [help] });
     }
 
   } catch (err) {
@@ -506,15 +493,15 @@ setInterval(saveData, BACKUP_INTERVAL);
 // ── Initial data load ─────────────────────────────────────────
 loadData();
 
-// ── Clean up old seen entries periodically ────────────────────
+// ── Clean up old seen entries periodically ─────────────────────
 setInterval(() => {
   const nowTs = now();
-  for (const [key, timestamp] of seen.entries()) {
-    if (nowTs - timestamp > DEDUP_MS * 2) seen.delete(key);
+  for (const [key,timestamp] of seen.entries()) {
+    if (nowTs - timestamp > DEDUP_MS*2) seen.delete(key);
   }
 }, DEDUP_MS);
 
-// ── Start server once Discord is ready ────────────────────────
+// ── Start server once Discord is ready ─────────────────────────
 client.once("ready", () => {
   console.log(`[discord] ready: ${client.user.tag}`);
   const port = process.env.PORT || 3000;
