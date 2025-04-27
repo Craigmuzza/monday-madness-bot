@@ -126,14 +126,16 @@ function checkCooldown(userId) {
   return true;
 }
 
+// ── GitHub commit helper (updated authentication) ───────────────
 async function commitToGitHub() {
   if (!GITHUB_PAT) return;
   try {
     const git = simpleGit();
     await git.add(".");
     await git.commit(COMMIT_MSG);
+    // Use token-as-username for HTTPS authentication
     await git.push(
-      `https://craigmuzza:${GITHUB_PAT}@github.com/${REPO}.git`,
+      `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`,
       BRANCH
     );
     console.log("[git] Successfully pushed changes");
