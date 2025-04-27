@@ -238,39 +238,46 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
 
 async function processKill(killer, victim, dedupKey, res) {
   try {
-    if (!killer||!victim) {
+    if (!killer || !victim) {
       return res.status(400).send("invalid data");
     }
-    if (clanOnlyMode && (!registered.has(ci(killer))||!registered.has(ci(victim)))) {
-      return res.status(200).send("non-clan ignored");
-    }
-    if (seen.has(dedupKey) && now()-seen.get(dedupKey)<DEDUP_MS) {
+
+    // determine whether this is a clan vs clan kill
+    const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
+
+    // de-dup as before...
+    if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
       return res.status(200).send("duplicate");
     }
-    seen.set(dedupKey,now());
+    seen.set(dedupKey, now());
 
+    // update total death/kill counts
     const { deathCounts, kills } = getEventData();
-    deathCounts[ci(victim)] = (deathCounts[ci(victim)]||0)+1;
-    kills        [ci(killer)] = (kills        [ci(killer)]||0)+1;
-    killLog.push({ killer, victim, timestamp: now() });
+    deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
+    kills[ci(killer)]       = (kills[ci(killer)]   || 0) + 1;
 
+    // push into log *with* our new flag
+    killLog.push({ killer, victim, timestamp: now(), isClan });
+
+    // build an embed that stands out if it's a clan kill
     const embed = new EmbedBuilder()
-      .setTitle("💀 Kill Logged")
+      .setTitle(isClan ? "💀 Clan Kill Logged" : "💀 Kill Logged (non-clan)")
       .setDescription(`**${killer}** killed **${victim}**`)
-      .addFields({ name:"Total Deaths", value:String(deathCounts[ci(victim)]), inline:true })
-      .setColor(0xFF0000)
+      .addFields({ name: "Total Deaths", value: String(deathCounts[ci(victim)]), inline: true })
+      .setColor(isClan ? 0xFF0000 : 0x888888)
       .setTimestamp();
 
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-    if (ch?.isTextBased()) await ch.send({ embeds:[embed] });
+    if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
 
     saveData();
     return res.status(200).send("ok");
   } catch (err) {
-    console.error("[processKill] Error:",err);
+    console.error("[processKill] Error:", err);
     return res.status(500).send("internal error");
   }
 }
+
 
 // ── HTTP Endpoints ────────────────────────────────────────────
 app.post("/logLoot", (req,res)=> {
@@ -332,32 +339,62 @@ client.on(Events.MessageCreate, async msg=>{
   const args=text.split(/\s+/), cmd=args.shift();
 
   try {
-    if (cmd==="!hiscores") {
-      let period="all";
-      if (args[0]&&["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
-        period=args.shift().toLowerCase();
-      }
-      const nameFilter=args.join(" ").toLowerCase()||null;
-      const filtered=filterByPeriod(killLog,period), counts={};
-      filtered.forEach(({killer})=>{
-        const k=killer.toLowerCase();
-        if (nameFilter&&k!==nameFilter) return;
-        counts[k]=(counts[k]||0)+1;
-      });
-      const board=Object.entries(counts)
-        .sort((a,b)=>b[1]-a[1])
-        .slice(0,10)
-        .map(([n,k],i)=>({ rank:i+1,name:n,kills:k }));
-      const embed=new EmbedBuilder()
-        .setTitle(`🏆 Hiscores (${period})`)
-        .setColor(0xFF0000)
-        .setTimestamp();
-      if (!board.length) embed.setDescription("No kills in that period.");
-      else board.forEach(e=>
-        embed.addFields({ name:`${e.rank}. ${e.name}`, value:`Kills: ${e.kills}`, inline:false })
+    // ── !hiscores [period] ───────────────────────────────────────
+if (cmd === "!hiscores") {
+  // 1) parse optional period
+  let period = "all";
+  if (args[0] && ["daily", "weekly", "monthly", "all"].includes(args[0].toLowerCase())) {
+    period = args.shift().toLowerCase();
+  }
+
+  // optional name filter
+  const nameFilter = args.join(" ").toLowerCase() || null;
+
+  // 2) grab logs
+  const allLog  = filterByPeriod(killLog, period);
+  const clanLog = allLog.filter(e => e.isClan);
+
+  // 3) tally
+  const tally = (log) => {
+    const counts = {};
+    log.forEach(({ killer }) => {
+      const k = killer.toLowerCase();
+      if (nameFilter && k !== nameFilter) return;
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, kills], i) => ({ rank: i + 1, name, kills }));
+  };
+
+  const boardAll  = tally(allLog);
+  const boardClan = tally(clanLog);
+
+  // 4) build embeds
+  const makeEmbed = (title, board) => {
+    const embed = new EmbedBuilder()
+      .setTitle(title)
+      .setColor(0xFF0000)
+      .setTimestamp();
+
+    if (board.length === 0) {
+      embed.setDescription("No kills in that period.");
+    } else {
+      board.forEach(e =>
+        embed.addFields({ name: `${e.rank}. ${e.name}`, value: `Kills: ${e.kills}`, inline: false })
       );
-      return msg.channel.send({ embeds:[embed] });
     }
+
+    return embed;
+  };
+
+  const embedClan = makeEmbed(`🏆 Clan Hiscores (${period})`, boardClan);
+  const embedAll  = makeEmbed(`🏆 All Hiscores  (${period})`, boardAll);
+
+  // 5) send both together
+  return msg.channel.send({ embeds: [embedClan, embedAll] });
+}
 
     if (cmd==="!totalgp"||cmd==="!totalloot") {
       const { gpTotal } = getEventData();
