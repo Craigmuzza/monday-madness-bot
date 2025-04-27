@@ -225,6 +225,9 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
     if (ch?.isTextBased()) await ch.send({ embeds:[embed] });
 
+// ── Auto-register the killer if not already in clan ────────────
+    registered.add(ci(killer));
+
     saveData();
     return res.status(200).send("ok");
   } catch (err) {
