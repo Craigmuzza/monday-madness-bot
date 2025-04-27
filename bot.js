@@ -1,6 +1,6 @@
 // bot.js
 import express from "express";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process"
 import multer from "multer";
 import { fileURLToPath } from "url";
 import {
@@ -131,25 +131,28 @@ function checkCooldown(userId) {
 function commitToGitHub() {
   if (!GITHUB_PAT) return;
   try {
-    // Build the exact commands, embedding your PAT in the push URL
-    const cmd = [
-      "git add .",
-      `git commit -m "${COMMIT_MSG.replace(/"/g, '\\"')}"`,
-      // Push *directly* to the tokenized HTTPS URL (no 'origin' involved)
-      `git push https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git ${BRANCH}`
-    ].join(" && ");
-
-    // Run synchronously in your repo folder, inherit stdio so you see output
-    execSync(cmd, {
-      cwd: __dirname,
-      stdio: "inherit"
-    });
+    // Stage all changes
+    spawnSync("git", ["add", "."], { cwd: __dirname, stdio: "inherit" });
+    // Commit
+    spawnSync(
+      "git",
+      ["commit", "-m", COMMIT_MSG],
+      { cwd: __dirname, stdio: "inherit" }
+    );
+    // Push directly to the token-URL (no origin remotes touched)
+    const url = `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`;
+    spawnSync(
+      "git",
+      ["push", url, BRANCH],
+      { cwd: __dirname, stdio: "inherit" }
+    );
 
     console.log("[git] Successfully pushed changes");
   } catch (err) {
     console.error("[git] Failed to push:", err.message || err);
   }
 }
+
 
 function getEventData() {
   if (!events[currentEvent]) {
