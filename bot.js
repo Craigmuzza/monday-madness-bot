@@ -192,38 +192,74 @@ function getEventData() {
 }
 
 // ── Core processors ───────────────────────────────────────────
+// ── Core processors ───────────────────────────────────────────
 async function processLoot(killer, victim, gp, dedupKey, res) {
   try {
-    if (!killer||!victim||typeof gp!=="number"||isNaN(gp)) {
+    if (!killer || !victim || typeof gp !== "number" || isNaN(gp)) {
       return res.status(400).send("invalid data");
     }
-    if (seen.has(dedupKey) && now()-seen.get(dedupKey)<DEDUP_MS) {
+    // de-dup
+    if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
       return res.status(200).send("duplicate");
     }
     seen.set(dedupKey, now());
 
+    // stats
     const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
     const { lootTotals, gpTotal, kills, deathCounts } = getEventData();
 
-    // update loot stats
-    lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
-    gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]||0) + gp;
-    kills     [ci(killer)]  = (kills     [ci(killer)]||0) + 1;
+    // update loot & kill logs
+    lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
+    gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)] || 0) + gp;
+    kills     [ci(killer)]  = (kills     [ci(killer)] || 0) + 1;
     lootLog.push({ killer, gp, timestamp: now(), isClan });
-	
-	// **record the kill** so !hiscores will pick it up
-    deathCounts[ci(victim)] = (deathCounts[ci(victim)]||0) + 1;
+
+    // record the kill so hiscores picks it up
+    deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
     killLog.push({ killer, victim, timestamp: now(), isClan });
 
-    // send embed...
+    // build & send the embed
     const embed = new EmbedBuilder()
       .setTitle(isClan ? "💎 Clan Loot Detected!" : "💰 Loot Detected")
-      // ...
-    const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-    if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
+      .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
+      .addFields({
+        name: isClan
+          ? "Clan GP Earned"
+          : (currentEvent === "default" ? "Total GP Earned" : "Event GP Gained"),
+        value: `${
+          (isClan
+            ? lootTotals[ci(killer)]
+            : (currentEvent === "default"
+                ? gpTotal[ci(killer)]
+                : lootTotals[ci(killer)])
+          ).toLocaleString()
+        } coins`,
+        inline: true
+      })
+      .setColor(isClan ? 0x00CC88 : 0xFF0000)
+      .setTimestamp();
 
-    // auto-register killer if new...
-    // save data...
+    if (isClan) {
+      embed.setFooter({ text: "🔥 Clan-vs-Clan action!" });
+    }
+
+    const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
+    if (ch?.isTextBased()) {
+      await ch.send({ embeds: [embed] });
+    }
+
+    // auto-register killer if new
+    const key = ci(killer);
+    if (!registered.has(key)) {
+      registered.add(key);
+      fs.writeFileSync(
+        path.join(DATA_DIR, "registered.json"),
+        JSON.stringify([...registered], null, 2)
+      );
+      commitToGitHub();
+    }
+
+    saveData();
     return res.status(200).send("ok");
   } catch (err) {
     console.error("[processLoot] Error:", err);
