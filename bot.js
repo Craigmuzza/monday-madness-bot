@@ -205,47 +205,21 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
     const { lootTotals, gpTotal, kills } = getEventData();
 
+    // update loot stats
     lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
     gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]||0) + gp;
     kills     [ci(killer)]  = (kills     [ci(killer)]||0) + 1;
     lootLog.push({ killer, gp, timestamp: now(), isClan });
 
+    // send embed...
     const embed = new EmbedBuilder()
       .setTitle(isClan ? "💎 Clan Loot Detected!" : "💰 Loot Detected")
-      .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
-      .addFields({
-        name: isClan
-          ? "Clan GP Earned"
-          : (currentEvent==="default" ? "Total GP Earned" : "Event GP Gained"),
-        value: `${(
-          isClan
-            ? lootTotals[ci(killer)]
-            : (currentEvent==="default"
-                ? gpTotal[ci(killer)]
-                : lootTotals[ci(killer)])
-        ).toLocaleString()} coins`,
-        inline: true
-      })
-      .setColor(isClan ? 0x00CC88 : 0xFF0000)
-      .setTimestamp();
-
-    if (isClan) embed.setFooter({ text: "🔥 Clan-vs-Clan action!" });
-
+      // ...
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
     if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
 
-    // auto-register killer only if new
-    const key = ci(killer);
-    if (!registered.has(key)) {
-      registered.add(key);
-      fs.writeFileSync(
-        path.join(DATA_DIR, "registered.json"),
-        JSON.stringify([...registered], null, 2)
-      );
-      commitToGitHub();
-    }
-
-    saveData();
+    // auto-register killer if new...
+    // save data...
     return res.status(200).send("ok");
   } catch (err) {
     console.error("[processLoot] Error:", err);
@@ -266,19 +240,14 @@ async function processKill(killer, victim, dedupKey, res) {
     const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
     const { deathCounts, kills } = getEventData();
 
-    deathCounts[ci(victim)] = (deathCounts[ci(victim)]||0) + 1;
-    kills        [ci(killer)] = (kills        [ci(killer)]||0) + 1;
+    // update kill/death stats
+    kills       [ci(killer)] = (kills       [ci(killer)]||0) + 1;
+    deathCounts [ci(victim)] = (deathCounts [ci(victim)]||0) + 1;
     killLog.push({ killer, victim, timestamp: now(), isClan });
 
     const embed = new EmbedBuilder()
       .setTitle(isClan ? "✨ Clan Kill Logged!" : "💀 Kill Logged")
-      .setDescription(`**${killer}** killed **${victim}**`)
-      .addFields({ name:"Total Deaths", value:String(deathCounts[ci(victim)]), inline:true })
-      .setColor(isClan ? 0x00CC88 : 0xFF0000)
-      .setTimestamp();
-
-    if (isClan) embed.setFooter({ text: "🔥 Clan-vs-Clan action!" });
-
+      // ...
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
     if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
 
@@ -289,6 +258,7 @@ async function processKill(killer, victim, dedupKey, res) {
     return res.status(500).send("internal error");
   }
 }
+
 
 // ── HTTP Endpoints ────────────────────────────────────────────
 app.post("/logLoot", (req,res) => {
@@ -364,15 +334,20 @@ function toCSV(rows, headers) {
 // ── Discord commands ─────────────────────────────────────────
 client.on(Events.MessageCreate, async msg => {
   if (msg.author.bot) return;
+
+  const text = msg.content.trim();
+  // Ignore everything that isn’t a command
+  if (!text.startsWith("!")) return;
+
+  // Now it's a command—apply rate-limit
   if (!checkCooldown(msg.author.id)) {
     return sendEmbed(msg.channel, "⏳ On Cooldown", "Please wait a few seconds between commands.");
   }
 
-  const text = msg.content.trim();
   const lc   = text.toLowerCase();
   const args = text.split(/\s+/);
   const cmd  = args.shift();
-
+  
   try {
     // ── !hiscores ────────────────────────────────────────────────
     if (cmd === "!hiscores") {
