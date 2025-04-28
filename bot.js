@@ -94,6 +94,14 @@ const lootLog = [];
 const ci  = s => (s||"").toLowerCase().trim();
 const now = () => Date.now();
 
+// **New**: abbreviate GP into K/M/B notation
+function abbreviateGP(n) {
+  if (n >= 1e9) return (n/1e9).toFixed(2).replace(/\.?0+$/,"") + "B";
+  if (n >= 1e6) return (n/1e6).toFixed(2).replace(/\.?0+$/,"") + "M";
+  if (n >= 1e3) return (n/1e3).toFixed(2).replace(/\.?0+$/,"") + "K";
+  return String(n);
+}
+
 // ── Send an embed to a channel ────────────────────────────────
 function sendEmbed(channel, title, desc, color = 0xFF0000) {
   const embed = new EmbedBuilder()
@@ -192,7 +200,6 @@ function getEventData() {
 }
 
 // ── Core processors ───────────────────────────────────────────
-// ── Core processors ───────────────────────────────────────────
 async function processLoot(killer, victim, gp, dedupKey, res) {
   try {
     if (!killer || !victim || typeof gp !== "number" || isNaN(gp)) {
@@ -209,16 +216,22 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     const { lootTotals, gpTotal, kills, deathCounts } = getEventData();
 
     // update loot & kill logs
-    lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
-    gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)] || 0) + gp;
-    kills     [ci(killer)]  = (kills     [ci(killer)] || 0) + 1;
+    lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
+    gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]||0) + gp;
+    kills     [ci(killer)]  = (kills     [ci(killer)]||0) + 1;
     lootLog.push({ killer, gp, timestamp: now(), isClan });
 
     // record the kill so hiscores picks it up
-    deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
+    deathCounts[ci(victim)] = (deathCounts[ci(victim)]||0) + 1;
     killLog.push({ killer, victim, timestamp: now(), isClan });
 
     // build & send the embed
+    const totalForDisplay = isClan
+      ? lootTotals[ci(killer)]
+      : (currentEvent === "default"
+          ? gpTotal[ci(killer)]
+          : lootTotals[ci(killer)]);
+
     const embed = new EmbedBuilder()
       .setTitle(isClan ? "💎 Clan Loot Detected!" : "💰 Loot Detected")
       .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
@@ -226,27 +239,16 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
         name: isClan
           ? "Clan GP Earned"
           : (currentEvent === "default" ? "Total GP Earned" : "Event GP Gained"),
-        value: `${
-          (isClan
-            ? lootTotals[ci(killer)]
-            : (currentEvent === "default"
-                ? gpTotal[ci(killer)]
-                : lootTotals[ci(killer)])
-          ).toLocaleString()
-        } coins`,
+        value: `${totalForDisplay.toLocaleString()} coins (${abbreviateGP(totalForDisplay)} GP)`,
         inline: true
       })
       .setColor(isClan ? 0x00CC88 : 0xFF0000)
       .setTimestamp();
 
-    if (isClan) {
-      embed.setFooter({ text: "🔥 Clan-vs-Clan action!" });
-    }
+    if (isClan) embed.setFooter({ text: "🔥 Clan-vs-Clan action!" });
 
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-    if (ch?.isTextBased()) {
-      await ch.send({ embeds: [embed] });
-    }
+    if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
 
     // auto-register killer if new
     const key = ci(killer);
@@ -395,7 +397,20 @@ client.on(Events.MessageCreate, async msg => {
   const lc   = text.toLowerCase();
   const args = text.split(/\s+/);
   const cmd  = args.shift();
-  
+
+  // Helper for !lootboard
+  const makeLootBoard = arr => {
+    const sums = {};
+    arr.forEach(({ killer, gp }) => {
+      const k = killer.toLowerCase();
+      sums[k] = (sums[k]||0) + gp;
+    });
+    return Object.entries(sums)
+      .sort((a,b) => b[1] - a[1])
+      .slice(0,10)
+      .map(([n,v],i) => ({ rank:i+1, name:n, gp:v }));
+  };
+
   try {
     // ── !hiscores ────────────────────────────────────────────────
     if (cmd === "!hiscores") {
@@ -408,7 +423,7 @@ client.on(Events.MessageCreate, async msg => {
       const normal = all.filter(e => !e.isClan);
       const clan   = all.filter(e => e.isClan);
 
-      const makeBoard = (arr) => {
+      const makeBoard = arr => {
         const counts = {};
         arr.forEach(({ killer }) => {
           const k = killer.toLowerCase();
@@ -452,7 +467,7 @@ client.on(Events.MessageCreate, async msg => {
       return sendEmbed(
         msg.channel,
         "💰 Total Loot",
-        `Total GP across all players: **${totalGP.toLocaleString()}** coins`
+        `Total GP across all players: **${totalGP.toLocaleString()} coins (${abbreviateGP(totalGP)} GP)**`
       );
     }
 
@@ -467,19 +482,6 @@ client.on(Events.MessageCreate, async msg => {
       const normal = all.filter(e => !e.isClan);
       const clan   = all.filter(e => e.isClan);
 
-      const makeLootBoard = (arr) => {
-        const sums = {};
-        arr.forEach(({ killer, gp }) => {
-          const k = killer.toLowerCase();
-          if (nameFilter && k !== nameFilter) return;
-          sums[k] = (sums[k]||0) + gp;
-        });
-        return Object.entries(sums)
-          .sort((a,b) => b[1] - a[1])
-          .slice(0,10)
-          .map(([n,v],i) => ({ rank:i+1, name:n, gp:v }));
-      };
-
       const normalBoard = makeLootBoard(normal);
       const clanBoard   = makeLootBoard(clan);
 
@@ -489,7 +491,11 @@ client.on(Events.MessageCreate, async msg => {
         .setTimestamp();
       if (!normalBoard.length) e1.setDescription("No loot in that period.");
       else normalBoard.forEach(r =>
-        e1.addFields({ name:`${r.rank}. ${r.name}`, value:`${r.gp.toLocaleString()} coins`, inline:false })
+        e1.addFields({
+          name:  `${r.rank}. ${r.name}`,
+          value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)} GP)`,
+          inline: false
+        })
       );
 
       const e2 = new EmbedBuilder()
@@ -498,7 +504,11 @@ client.on(Events.MessageCreate, async msg => {
         .setTimestamp();
       if (!clanBoard.length) e2.setDescription("No clan-vs-clan loot.");
       else clanBoard.forEach(r =>
-        e2.addFields({ name:`${r.rank}. ${r.name}`, value:`${r.gp.toLocaleString()} coins`, inline:false })
+        e2.addFields({
+          name:  `${r.rank}. ${r.name}`,
+          value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)} GP)`,
+          inline: false
+        })
       );
 
       return msg.channel.send({ embeds: [e1, e2] });
@@ -554,7 +564,7 @@ client.on(Events.MessageCreate, async msg => {
       }
       names.forEach(n => {
         if (cmd === "!register") registered.add(n);
-        else                registered.delete(n);
+        else                     registered.delete(n);
       });
       fs.writeFileSync(
         path.join(__dirname,"data/registered.json"),
@@ -583,7 +593,7 @@ client.on(Events.MessageCreate, async msg => {
       return sendEmbed(
         msg.channel,
         "📅 Events",
-        Object.keys(events).map(e => `• ${e}${e === currentEvent ? " (current)" : ""}`).join("\n")
+        Object.keys(events).map(e => `• ${e}${e===currentEvent?" (current)":""}`).join("\n")
       );
     }
     if (lc.startsWith("!createevent ")) {
@@ -597,7 +607,7 @@ client.on(Events.MessageCreate, async msg => {
     }
     if (lc === "!finishevent") {
       const file = `events/event_${currentEvent}_${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
-      fs.mkdirSync(path.dirname(path.join(__dirname,file)),{ recursive:true });
+      fs.mkdirSync(path.dirname(path.join(__dirname,file)), { recursive:true });
       fs.writeFileSync(path.join(__dirname,file), JSON.stringify(events[currentEvent],null,2));
       await commitToGitHub();
       delete events[currentEvent];
@@ -626,22 +636,6 @@ client.on(Events.MessageCreate, async msg => {
     console.error("[command] Error processing command:", cmd, err);
     return sendEmbed(msg.channel, "❌ Command Error", "An error occurred while processing your command.");
   }
-});
-
-// ── Auto backup, load, cleanup, launch ────────────────────────
-setInterval(saveData, BACKUP_INTERVAL);
-loadData();
-setInterval(() => {
-  const nowTs = now();
-  for (const [k,t] of seen.entries()) {
-    if (nowTs - t > DEDUP_MS * 2) seen.delete(k);
-  }
-}, DEDUP_MS);
-
-client.once("ready", () => {
-  console.log(`[discord] ready: ${client.user.tag}`);
-  const port = process.env.PORT || 3000;
-  app.listen(port, () => console.log(`[http] listening on ${port}`));
 });
 
 client.on("error", error => console.error("[discord] Client error:", error));
