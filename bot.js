@@ -23,7 +23,7 @@ const __dirname  = path.dirname(__filename);
 // ── Persistent data directory (Render volume) ───────────────
 const DATA_DIR = "/data";
 
-// ── Ensure correct origin remote ──────────────────────────────
+// ── Ensure correct origin remote ─────────────────────────────
 ;(function fixOrigin() {
   try {
     const res = spawnSync("git", [
@@ -159,6 +159,8 @@ function saveData() {
 
 function loadData() {
   try {
+    if (!fs.existsSync(DATA_DIR)) return console.log("[init] no data dir yet");
+
     const regPath = path.join(DATA_DIR, "registered.json");
     if (fs.existsSync(regPath)) {
       const arr = JSON.parse(fs.readFileSync(regPath));
@@ -205,7 +207,6 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     if (!killer || !victim || typeof gp !== "number" || isNaN(gp)) {
       return res.status(400).send("invalid data");
     }
-    // de-dup
     if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
       return res.status(200).send("duplicate");
     }
@@ -214,17 +215,14 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
     const { lootTotals, gpTotal, kills, deathCounts } = getEventData();
 
-    // update loot & kill logs
     lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
     gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]||0) + gp;
     kills     [ci(killer)] = (kills     [ci(killer)]||0) + 1;
     lootLog.push({ killer, gp, timestamp: now(), isClan });
 
-    // record the kill so hiscores picks it up
     deathCounts[ci(victim)] = (deathCounts[ci(victim)]||0) + 1;
     killLog.push({ killer, victim, timestamp: now(), isClan });
 
-    // build & send the embed
     const totalForDisplay = isClan
       ? lootTotals[ci(killer)]
       : (currentEvent === "default"
@@ -249,10 +247,10 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
     if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
 
-    // auto-register killer if new
     const key = ci(killer);
     if (!registered.has(key)) {
       registered.add(key);
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
       fs.writeFileSync(
         path.join(DATA_DIR, "registered.json"),
         JSON.stringify([...registered], null, 2)
@@ -270,10 +268,10 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
 
 async function processKill(killer, victim, dedupKey, res) {
   try {
-    if (!killer||!victim) {
+    if (!killer || !victim) {
       return res.status(400).send("invalid data");
     }
-    if (seen.has(dedupKey) && now()-seen.get(dedupKey)<DEDUP_MS) {
+    if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
       return res.status(200).send("duplicate");
     }
     seen.set(dedupKey, now());
@@ -357,7 +355,10 @@ app.post(
   }
 );
 
-// ── Start HTTP server (Render) ──────────────────────────────
+// ── Startup ───────────────────────────────────────────────────
+loadData();
+setInterval(saveData, BACKUP_INTERVAL);
+
 const port = process.env.PORT;
 if (!port) {
   console.error("❌ PORT env var is required by Render");
@@ -378,9 +379,17 @@ function filterByPeriod(log, period) {
   const nowTs = now();
   return log.filter(e => nowTs - e.timestamp <= cutoff);
 }
+
 function toCSV(rows, headers) {
   const esc = v => `"${String(v).replace(/"/g,'""')}"`;
-  return [headers.join(","), ...rows.map(r => headers.map(h => esc(r[h])).join(","))].join("\n");
+  // build up an array of CSV lines
+  const lines = [ headers.join(",") ];
+  for (const row of rows) {
+    lines.push(
+      headers.map(h => esc(row[h])).join(",")
+    );
+  }
+  return lines.join("\n");
 }
 
 // ── Discord commands ─────────────────────────────────────────
@@ -388,10 +397,7 @@ client.on(Events.MessageCreate, async msg => {
   if (msg.author.bot) return;
 
   const text = msg.content.trim();
-  // Ignore everything that isn’t a command
   if (!text.startsWith("!")) return;
-
-  // Now it's a command—apply rate-limit
   if (!checkCooldown(msg.author.id)) {
     return sendEmbed(msg.channel, "⏳ On Cooldown", "Please wait a few seconds between commands.");
   }
@@ -400,7 +406,6 @@ client.on(Events.MessageCreate, async msg => {
   const args = text.split(/\s+/);
   const cmd  = args.shift();
 
-  // Helper for !lootboard
   const makeLootBoard = arr => {
     const sums = {};
     arr.forEach(({ killer, gp }) => {
@@ -414,7 +419,6 @@ client.on(Events.MessageCreate, async msg => {
   };
 
   try {
-    // ── !hiscores ────────────────────────────────────────────────
     if (cmd === "!hiscores") {
       let period = "all";
       if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
@@ -640,11 +644,8 @@ client.on(Events.MessageCreate, async msg => {
   }
 });
 
-// ── Discord ready & error handlers ───────────────────────────
-client.once("ready", () => {
-  console.log(`[discord] ready: ${client.user.tag}`);
-});
-client.on("error",   err => console.error("[discord] Client error:", err));
+client.once("ready", () => console.log(`[discord] ready: ${client.user.tag}`));
+client.on("error", err => console.error("[discord] Client error:", err));
 client.on("disconnect", () => console.log("[discord] Client disconnected"));
 
 client.login(DISCORD_BOT_TOKEN).catch(err => {
