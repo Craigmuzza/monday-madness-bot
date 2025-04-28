@@ -211,14 +211,13 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     }
     seen.set(dedupKey, now());
 
-    // stats
     const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
     const { lootTotals, gpTotal, kills, deathCounts } = getEventData();
 
     // update loot & kill logs
     lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
     gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]||0) + gp;
-    kills     [ci(killer)]  = (kills     [ci(killer)]||0) + 1;
+    kills     [ci(killer)] = (kills     [ci(killer)]||0) + 1;
     lootLog.push({ killer, gp, timestamp: now(), isClan });
 
     // record the kill so hiscores picks it up
@@ -282,14 +281,12 @@ async function processKill(killer, victim, dedupKey, res) {
     const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
     const { deathCounts, kills } = getEventData();
 
-    // update kill/death stats
     kills       [ci(killer)] = (kills       [ci(killer)]||0) + 1;
     deathCounts [ci(victim)] = (deathCounts [ci(victim)]||0) + 1;
     killLog.push({ killer, victim, timestamp: now(), isClan });
 
     const embed = new EmbedBuilder()
-      .setTitle(isClan ? "✨ Clan Kill Logged!" : "💀 Kill Logged")
-      // ...
+      .setTitle(isClan ? "✨ Clan Kill Logged!" : "💀 Kill Logged");
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
     if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
 
@@ -300,7 +297,6 @@ async function processKill(killer, victim, dedupKey, res) {
     return res.status(500).send("internal error");
   }
 }
-
 
 // ── HTTP Endpoints ────────────────────────────────────────────
 app.post("/logLoot", (req, res) => {
@@ -332,18 +328,16 @@ app.post(
   "/dink",
   upload.fields([
     { name: "payload_json", maxCount: 1 },
-    { name: "file", maxCount: 1 }
+    { name: "file",         maxCount: 1 }
   ]),
   async (req, res) => {
     let raw = req.body.payload_json;
     if (Array.isArray(raw)) raw = raw[0];
     if (!raw) return res.status(400).send("no payload_json");
+
     let data;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      return res.status(400).send("bad JSON");
-    }
+    try { data = JSON.parse(raw); }
+    catch { return res.status(400).send("bad JSON"); }
 
     const rsn = data.playerName,
           msg = data.extra?.message;
@@ -352,16 +346,24 @@ app.post(
 
     if (
       data.type === "CHAT" &&
-      ["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) &&
+      ["CLAN_CHAT","CLAN_MESSAGE"].includes(data.extra?.type) &&
       typeof msg === "string"
     ) {
       const m = msg.match(LOOT_RE);
       if (m) return processLoot(m[1], m[2], Number(m[3].replace(/,/g, "")), msg.trim(), res);
     }
+
     return res.status(204).end();
   }
 );
 
+// ── Start HTTP server (Render) ──────────────────────────────
+const port = process.env.PORT;
+if (!port) {
+  console.error("❌ PORT env var is required by Render");
+  process.exit(1);
+}
+app.listen(port, () => console.log(`[http] listening on ${port}`));
 
 // ── Time & CSV helpers ─────────────────────────────────────────
 function filterByPeriod(log, period) {
@@ -638,7 +640,11 @@ client.on(Events.MessageCreate, async msg => {
   }
 });
 
-client.on("error", error => console.error("[discord] Client error:", error));
+// ── Discord ready & error handlers ───────────────────────────
+client.once("ready", () => {
+  console.log(`[discord] ready: ${client.user.tag}`);
+});
+client.on("error",   err => console.error("[discord] Client error:", err));
 client.on("disconnect", () => console.log("[discord] Client disconnected"));
 
 client.login(DISCORD_BOT_TOKEN).catch(err => {
