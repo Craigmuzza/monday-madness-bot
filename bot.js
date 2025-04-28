@@ -265,57 +265,65 @@ async function processKill(killer, victim, dedupKey, res) {
 
 
 // ── HTTP Endpoints ────────────────────────────────────────────
-app.post("/logLoot", (req,res) => {
+app.post("/logLoot", (req, res) => {
   const txt = req.body?.lootMessage;
   if (!txt) return res.status(400).send("bad");
   const m = txt.match(LOOT_RE);
   if (!m) return res.status(400).send("fmt");
-  return processLoot(m[1], m[2], Number(m[3].replace(/,/g,"")), txt.trim(), res);
+  return processLoot(
+    m[1],
+    m[2],
+    Number(m[3].replace(/,/g, "")),
+    txt.trim(),
+    res
+  );
 });
-app.post("/logKill", async (req,res) => {
-  const { killer, victim } = req.body||{};
-  if (!killer||!victim) return res.status(400).send("bad data");
-  return processKill(killer, victim, `K|${ci(killer)}|${ci(victim)}`, res);
-});
-// … the rest of your endpoints and command handlers unchanged …
 
+app.post("/logKill", async (req, res) => {
+  const { killer, victim } = req.body || {};
+  if (!killer || !victim) return res.status(400).send("bad data");
+  return processKill(
+    killer,
+    victim,
+    `K|${ci(killer)}|${ci(victim)}`,
+    res
+  );
+});
 
-// ── HTTP Endpoints ────────────────────────────────────────────
-app.post("/logLoot", (req,res) => {
-  const txt = req.body?.lootMessage;
-  if (!txt) return res.status(400).send("bad");
-  const m = txt.match(LOOT_RE);
-  if (!m) return res.status(400).send("fmt");
-  return processLoot(m[1], m[2], Number(m[3].replace(/,/g,"")), txt.trim(), res);
-});
-app.post("/logKill", async (req,res) => {
-  const { killer, victim } = req.body||{};
-  if (!killer||!victim) return res.status(400).send("bad data");
-  return processKill(killer, victim, `K|${ci(killer)}|${ci(victim)}`, res);
-});
 app.post(
   "/dink",
-  upload.fields([{ name:"payload_json",maxCount:1},{ name:"file",maxCount:1 }]),
-  async (req,res) => {
+  upload.fields([
+    { name: "payload_json", maxCount: 1 },
+    { name: "file", maxCount: 1 }
+  ]),
+  async (req, res) => {
     let raw = req.body.payload_json;
     if (Array.isArray(raw)) raw = raw[0];
     if (!raw) return res.status(400).send("no payload_json");
     let data;
-    try { data = JSON.parse(raw); } catch { return res.status(400).send("bad JSON"); }
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return res.status(400).send("bad JSON");
+    }
 
-    const rsn = data.playerName, msg = data.extra?.message;
-    if (typeof msg === "string") console.log(`[dink] seen by=${rsn}|msg=${msg}`);
+    const rsn = data.playerName,
+          msg = data.extra?.message;
+    if (typeof msg === "string")
+      console.log(`[dink] seen by=${rsn}|msg=${msg}`);
+
     if (
       data.type === "CHAT" &&
-      ["CLAN_CHAT","CLAN_MESSAGE"].includes(data.extra?.type) &&
+      ["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) &&
       typeof msg === "string"
     ) {
       const m = msg.match(LOOT_RE);
-      if (m) return processLoot(m[1], m[2], Number(m[3].replace(/,/g,"")), msg.trim(), res);
+      if (m) return processLoot(m[1], m[2], Number(m[3].replace(/,/g, "")), msg.trim(), res);
     }
     return res.status(204).end();
   }
 );
+
 
 // ── Time & CSV helpers ─────────────────────────────────────────
 function filterByPeriod(log, period) {
