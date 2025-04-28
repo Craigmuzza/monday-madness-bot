@@ -203,13 +203,17 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     seen.set(dedupKey, now());
 
     const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
-    const { lootTotals, gpTotal, kills } = getEventData();
+    const { lootTotals, gpTotal, kills, deathCounts } = getEventData();
 
     // update loot stats
     lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
     gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]||0) + gp;
     kills     [ci(killer)]  = (kills     [ci(killer)]||0) + 1;
     lootLog.push({ killer, gp, timestamp: now(), isClan });
+	
+	// **record the kill** so !hiscores will pick it up
+    deathCounts[ci(victim)] = (deathCounts[ci(victim)]||0) + 1;
+    killLog.push({ killer, victim, timestamp: now(), isClan });
 
     // send embed...
     const embed = new EmbedBuilder()
