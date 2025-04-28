@@ -20,6 +20,9 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
+// ── Persistent data directory (Render volume) ───────────────
+const DATA_DIR = "/data";
+
 // ── Ensure correct origin remote ──────────────────────────────
 ;(function fixOrigin() {
   try {
@@ -39,7 +42,7 @@ const __dirname  = path.dirname(__filename);
 ;(function setGitIdentity() {
   try {
     spawnSync("git", ["config", "user.email", "bot@localhost"], { cwd: __dirname });
-    spawnSync("git", ["config", "user.name",  "Robo-Rat Bot"], { cwd: __dirname });
+    spawnSync("git", ["config", "user.name",  "Robo-Rat Bot"],    { cwd: __dirname });
     console.log("[git] configured local user.name & user.email");
   } catch (err) {
     console.error("[git] error setting git identity:", err);
@@ -129,45 +132,44 @@ function commitToGitHub() {
 // ── Save & Load data ──────────────────────────────────────────
 function saveData() {
   try {
-    const dataDir = path.join(__dirname,"data");
-    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir,{ recursive:true });
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
     fs.writeFileSync(
-      path.join(dataDir,"state.json"),
-      JSON.stringify({ currentEvent, clanOnlyMode, events, killLog, lootLog },null,2)
+      path.join(DATA_DIR, "state.json"),
+      JSON.stringify({ currentEvent, clanOnlyMode, events, killLog, lootLog }, null, 2)
     );
     fs.writeFileSync(
-      path.join(dataDir,"registered.json"),
-      JSON.stringify([...registered],null,2)
+      path.join(DATA_DIR, "registered.json"),
+      JSON.stringify([...registered], null, 2)
     );
 
     commitToGitHub();
   } catch (err) {
-    console.error("[save] Failed to save data:",err);
+    console.error("[save] Failed to save data:", err);
   }
 }
 
 function loadData() {
   try {
-    const regPath = path.join(__dirname,"data/registered.json");
+    const regPath = path.join(DATA_DIR, "registered.json");
     if (fs.existsSync(regPath)) {
       const arr = JSON.parse(fs.readFileSync(regPath));
-      if (Array.isArray(arr)) arr.forEach(n=>registered.add(ci(n)));
+      if (Array.isArray(arr)) arr.forEach(n => registered.add(ci(n)));
       console.log(`[init] loaded ${registered.size} registered names`);
     }
 
-    const statePath = path.join(__dirname,"data/state.json");
+    const statePath = path.join(DATA_DIR, "state.json");
     if (fs.existsSync(statePath)) {
       const state = JSON.parse(fs.readFileSync(statePath));
       currentEvent = state.currentEvent || "default";
       clanOnlyMode = state.clanOnlyMode || false;
-      Object.assign(events,state.events||{});
-      killLog.push(...(state.killLog||[]));
-      lootLog.push(...(state.lootLog||[]));
+      Object.assign(events, state.events || {});
+      killLog.push(...(state.killLog || []));
+      lootLog.push(...(state.lootLog || []));
       console.log("[init] loaded saved state");
     }
   } catch (err) {
-    console.error("[init] Failed to load data:",err);
+    console.error("[init] Failed to load data:", err);
   }
 }
 
@@ -192,38 +194,33 @@ function getEventData() {
 // ── Core processors ───────────────────────────────────────────
 async function processLoot(killer, victim, gp, dedupKey, res) {
   try {
-    if (!killer || !victim || typeof gp !== "number" || isNaN(gp)) {
+    if (!killer||!victim||typeof gp!=="number"||isNaN(gp)) {
       return res.status(400).send("invalid data");
     }
-
-    // de-dup incoming webhooks
-    if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
+    if (seen.has(dedupKey) && now()-seen.get(dedupKey)<DEDUP_MS) {
       return res.status(200).send("duplicate");
     }
     seen.set(dedupKey, now());
 
-    // determine clan-vs-clan
     const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
     const { lootTotals, gpTotal, kills } = getEventData();
 
-    // update stats
-    lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
-    gpTotal[ci(killer)]    = (gpTotal[ci(killer)]    || 0) + gp;
-    kills[ci(killer)]      = (kills[ci(killer)]      || 0) + 1;
+    lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
+    gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]||0) + gp;
+    kills     [ci(killer)]  = (kills     [ci(killer)]||0) + 1;
     lootLog.push({ killer, gp, timestamp: now(), isClan });
 
-    // build embed
     const embed = new EmbedBuilder()
       .setTitle(isClan ? "💎 Clan Loot Detected!" : "💰 Loot Detected")
       .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
       .addFields({
         name: isClan
           ? "Clan GP Earned"
-          : (currentEvent === "default" ? "Total GP Earned" : "Event GP Gained"),
+          : (currentEvent==="default" ? "Total GP Earned" : "Event GP Gained"),
         value: `${(
           isClan
             ? lootTotals[ci(killer)]
-            : (currentEvent === "default"
+            : (currentEvent==="default"
                 ? gpTotal[ci(killer)]
                 : lootTotals[ci(killer)])
         ).toLocaleString()} coins`,
@@ -237,19 +234,17 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
     if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
 
-    // auto-register the killer only if they’re brand new
+    // auto-register killer only if new
     const key = ci(killer);
     if (!registered.has(key)) {
       registered.add(key);
-      // persist registration immediately
       fs.writeFileSync(
-        path.join(__dirname, "data/registered.json"),
+        path.join(DATA_DIR, "registered.json"),
         JSON.stringify([...registered], null, 2)
       );
       commitToGitHub();
     }
 
-    // now persist the rest of the data
     saveData();
     return res.status(200).send("ok");
   } catch (err) {
@@ -263,8 +258,7 @@ async function processKill(killer, victim, dedupKey, res) {
     if (!killer||!victim) {
       return res.status(400).send("invalid data");
     }
-
-    if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
+    if (seen.has(dedupKey) && now()-seen.get(dedupKey)<DEDUP_MS) {
       return res.status(200).send("duplicate");
     }
     seen.set(dedupKey, now());
@@ -279,7 +273,7 @@ async function processKill(killer, victim, dedupKey, res) {
     const embed = new EmbedBuilder()
       .setTitle(isClan ? "✨ Clan Kill Logged!" : "💀 Kill Logged")
       .setDescription(`**${killer}** killed **${victim}**`)
-      .addFields({ name: "Total Deaths", value: String(deathCounts[ci(victim)]), inline: true })
+      .addFields({ name:"Total Deaths", value:String(deathCounts[ci(victim)]), inline:true })
       .setColor(isClan ? 0x00CC88 : 0xFF0000)
       .setTimestamp();
 
@@ -291,10 +285,26 @@ async function processKill(killer, victim, dedupKey, res) {
     saveData();
     return res.status(200).send("ok");
   } catch (err) {
-    console.error("[processKill] Error:",err);
+    console.error("[processKill] Error:", err);
     return res.status(500).send("internal error");
   }
 }
+
+// ── HTTP Endpoints ────────────────────────────────────────────
+app.post("/logLoot", (req,res) => {
+  const txt = req.body?.lootMessage;
+  if (!txt) return res.status(400).send("bad");
+  const m = txt.match(LOOT_RE);
+  if (!m) return res.status(400).send("fmt");
+  return processLoot(m[1], m[2], Number(m[3].replace(/,/g,"")), txt.trim(), res);
+});
+app.post("/logKill", async (req,res) => {
+  const { killer, victim } = req.body||{};
+  if (!killer||!victim) return res.status(400).send("bad data");
+  return processKill(killer, victim, `K|${ci(killer)}|${ci(victim)}`, res);
+});
+// … the rest of your endpoints and command handlers unchanged …
+
 
 // ── HTTP Endpoints ────────────────────────────────────────────
 app.post("/logLoot", (req,res) => {
