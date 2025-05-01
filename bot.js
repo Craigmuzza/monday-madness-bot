@@ -90,10 +90,25 @@ const events     = {
 const commandCooldowns = new Collection();
 const killLog = [];
 const lootLog = [];
+const bounties = {};                     // ‹name› (lower-case) → gp
 
 // ── Helpers ───────────────────────────────────────────────────
 const ci  = s => (s||"").toLowerCase().trim();
 const now = () => Date.now();
+function parseGPString(s) {
+  if (typeof s !== "string") return NaN;
+  const m = s.trim().toLowerCase().match(/^([\d,.]+)([kmb])?$/);
+  if (!m) return NaN;
+  let n = Number(m[1].replace(/,/g, ""));
+  if (isNaN(n)) return NaN;
+  const suffix = m[2];
+  if (suffix === "k") n *= 1e3;
+  if (suffix === "m") n *= 1e6;
+  if (suffix === "b") n *= 1e9;
+  return n;
+}
+
+ // **New**: abbreviate GP into K/M/B notation
 
 // **New**: abbreviate GP into K/M/B notation
 function abbreviateGP(n) {
@@ -155,6 +170,10 @@ function saveData() {
       path.join(DATA_DIR, "raglist.json"),
       JSON.stringify([...raglist], null, 2)
     );
+	fs.writeFileSync(
+	  path.join(DATA_DIR, "bounties.json"),
+      JSON.stringify(bounties, null, 2)
+  );
     
     commitToGitHub();  // Commit the data to GitHub
   } catch (err) {
@@ -190,6 +209,12 @@ function loadData() {
       lootLog.push(...(state.lootLog || []));
       console.log("[init] loaded saved state");
     }
+	const bountyPath = path.join(DATA_DIR, "bounties.json");
+	if (fs.existsSync(bountyPath)) {
+	  Object.assign(bounties, JSON.parse(fs.readFileSync(bountyPath)));
+      console.log(`[init] loaded ${Object.keys(bounties).length} bounties`);
+  }
+	
   } catch (err) {
     console.error("[init] Failed to load data:", err);  // Handle any errors
   }
@@ -266,7 +291,17 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
         "⚔️ Raglist Alert!",
         `@here **${victim}** is on the Raglist! Time to hunt them down!`
       );
-    }
+      const bounty = bounties[ci(victim)] || 0;
+      const bountyText = bounty
+      ? `\nCurrent bounty: **${bounty.toLocaleString()} coins (${abbreviateGP(bounty)})**`
+      : "";
+      await sendEmbed(
+      ch,
+      "⚔️ Raglist Alert!",
+      `@here **${victim}** is on the Raglist! Time to hunt them down!${bountyText}`
+    );
+   }
+	
 
     // auto-register killer if new
     const key = ci(killer);
@@ -380,7 +415,14 @@ app.post(
 
 // ── Startup ───────────────────────────────────────────────────
 loadData();
-setInterval(saveData, BACKUP_INTERVAL);
+setInterval(() => {
+  try {
+    saveData();
+  } catch (err) {
+    console.error("[save] periodic save failed:", err);
+  }
+}, BACKUP_INTERVAL);
+
 
 const port = process.env.PORT;
 if (!port) {
@@ -638,8 +680,8 @@ client.on(Events.MessageCreate, async msg => {
 		  else                     registered.delete(n);
 		});
 		fs.writeFileSync(
-		  path.join(__dirname,"data/registered.json"), 
-		  JSON.stringify([...registered],null,2)
+			path.join(DATA_DIR, "registered.json"),        // ← point to the same volume
+			JSON.stringify([...registered], null, 2)
 		);
 		await commitToGitHub();
 		return sendEmbed(
@@ -721,6 +763,70 @@ client.on(Events.MessageCreate, async msg => {
 	  }
 	}
 
+    // ── !bounty ────────────────────────────────────────────────
+    if (cmd === "!bounty") {
+      const sub = (args.shift() || "").toLowerCase();
+
+      // !bounty list
+      if (sub === "list") {
+        if (!Object.keys(bounties).length) {
+          return sendEmbed(msg.channel, "💰 Bounties", "No active bounties.");
+        }
+        const e = new EmbedBuilder()
+          .setTitle("💰 Active Bounties")
+          .setColor(0xFFAA00)
+          .setTimestamp();
+        Object.entries(bounties)
+          .sort((a, b) => b[1] - a[1])
+          .forEach(([n, gp]) =>
+            e.addFields({
+              name: n,
+              value: `${gp.toLocaleString()} coins (${abbreviateGP(gp)})`,
+              inline: false
+            })
+          );
+        return msg.channel.send({ embeds: [e] });
+      }
+
+      // !bounty add/remove <name> <amount>
+      if (["add", "remove"].includes(sub)) {
+        const name   = (args.shift() || "").trim();
+        const amount = parseGPString(args.shift());
+        if (!name || isNaN(amount) || amount <= 0) {
+          return sendEmbed(
+            msg.channel,
+            "⚠️ Usage",
+            "`!bounty add|remove <raglist-name> <amount>`  (e.g. `!bounty add ZammyTroll 10m`)"
+          );
+        }
+        if (!raglist.has(ci(name))) {
+          return sendEmbed(msg.channel, "⚠️ Error", "That name is not in the raglist.");
+        }
+
+        const key = ci(name);
+        if (sub === "add") {
+          bounties[key] = (bounties[key] || 0) + amount;
+        } else {
+          bounties[key] = Math.max(0, (bounties[key] || 0) - amount);
+          if (bounties[key] === 0) delete bounties[key];
+        }
+        saveData();
+        return sendEmbed(
+          msg.channel,
+          sub === "add" ? "➕ Bounty Added" : "➖ Bounty Reduced",
+          `**${name}** ➜ ${bounties[key] ? `${bounties[key].toLocaleString()} coins (${abbreviateGP(bounties[key])})` : "no bounty"}`
+        );
+      }
+
+      // unknown sub-command
+      return sendEmbed(
+        msg.channel,
+        "⚠️ Usage",
+        "`!bounty list` or `!bounty add|remove <name> <amount>`"
+      );
+    }
+
+
 
 	   // ── !help ───────────────────────────────────────────────────
 	if (lc === "!help") {
@@ -734,6 +840,7 @@ client.on(Events.MessageCreate, async msg => {
 		  { name: "Clan", value:"`!register <n1,n2>`\n`!unregister <n1,n2>`\n`!listclan`\n`!clanonly on/off`", inline:false },
 		  { name: "Events", value:"`!createevent <name>`\n`!finishevent`\n`!listevents`", inline:false },
 		  { name: "Raglist", value:"`!raglist` - View raglist\n`!raglist add <name>` - Add player to raglist\n`!raglist remove <name>` - Remove player from raglist", inline:false },
+		  { name: "Bounty",  value:"`!bounty list`\n`!bounty add <name> <amount>`\n`!bounty remove <name> <amount>`", inline:false },
 		  { name: "Misc", value:"`!help`", inline:false }
 		]);
 	  return msg.channel.send({ embeds: [help] });
