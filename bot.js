@@ -90,7 +90,16 @@ const events     = {
 const commandCooldowns = new Collection();
 const killLog = [];
 const lootLog = [];
-const bounties = {};                     // ‹name› (lower-case) → gp
+/**
+ *  bounties = {
+ *    "victim-name": {
+ *       total:   25_000_000,           // total GP on that head
+ *       posters: { userId: amount }    // per-Discord-user contribution
+ *    },
+ *    …
+ *  }
+ */
+const bounties = Object.create(null);
 
 // ── Helpers ───────────────────────────────────────────────────
 const ci  = s => (s||"").toLowerCase().trim();
@@ -107,8 +116,6 @@ function parseGPString(s) {
   if (suffix === "b") n *= 1e9;
   return n;
 }
-
- // **New**: abbreviate GP into K/M/B notation
 
 // **New**: abbreviate GP into K/M/B notation
 function abbreviateGP(n) {
@@ -160,7 +167,11 @@ function saveData() {
 
     fs.writeFileSync(
       path.join(DATA_DIR, "state.json"),
-      JSON.stringify({ currentEvent, clanOnlyMode, events, killLog, lootLog }, null, 2)
+      JSON.stringify(
+       { currentEvent, clanOnlyMode, events, killLog, lootLog, bounties },
+       null,
+       2
+	   )
     );
     fs.writeFileSync(
       path.join(DATA_DIR, "registered.json"),
@@ -207,11 +218,20 @@ function loadData() {
       Object.assign(events, state.events || {});
       killLog.push(...(state.killLog || []));
       lootLog.push(...(state.lootLog || []));
+	   if (state.bounties) {
+		Object.assign(bounties, state.bounties);
+	    } 
       console.log("[init] loaded saved state");
     }
 	const bountyPath = path.join(DATA_DIR, "bounties.json");
 	if (fs.existsSync(bountyPath)) {
-	  Object.assign(bounties, JSON.parse(fs.readFileSync(bountyPath)));
+	Object.assign(bounties, JSON.parse(fs.readFileSync(bountyPath)));
+	 // add a sanity check for legacy "number" values
+	Object.entries(bounties).forEach(([k, v]) => {
+	  if (typeof v === "number") {
+       bounties[k] = { total: v, posters: {} };
+   }
+ });
       console.log(`[init] loaded ${Object.keys(bounties).length} bounties`);
   }
 	
@@ -281,41 +301,49 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
 
     if (isClan) embed.setFooter({ text: "🔥 Clan-vs-Clan action!" });
 
+        // Send the main loot-detected embed
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
     if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
 
-	// Alert if victim is in the raglist
+    // ── Raglist alert ─────────────────────────────────────────
     if (raglist.has(ci(victim))) {
+      const bountyObj   = bounties[ci(victim)];
+      const bountyTotal = bountyObj ? bountyObj.total : 0;
+
+      const bountyLine = bountyTotal
+        ? `\nCurrent bounty: **${bountyTotal.toLocaleString()} coins (${abbreviateGP(bountyTotal)})**`
+        : "";
+
       await sendEmbed(
         ch,
         "⚔️ Raglist Alert!",
-        `@here **${victim}** is on the Raglist! Time to hunt them down!`
+        `@here **${victim}** is on the Raglist! Time to hunt them down!${bountyLine}`
       );
-      const bounty = bounties[ci(victim)] || 0;
-      const bountyText = bounty
-      ? `\nCurrent bounty: **${bounty.toLocaleString()} coins (${abbreviateGP(bounty)})**`
-      : "";
-      await sendEmbed(
-      ch,
-      "⚔️ Raglist Alert!",
-      `@here **${victim}** is on the Raglist! Time to hunt them down!${bountyText}`
-    );
-   }
-	
-
-    // auto-register killer if new
-    const key = ci(killer);
-    if (!registered.has(key)) {
-      registered.add(key);
-      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-      fs.writeFileSync(
-        path.join(DATA_DIR, "registered.json"),
-        JSON.stringify([...registered], null, 2)
-      );
-      commitToGitHub();
     }
 
-    // persist everything
+    // ── Bounty claimed ────────────────────────────────────────
+    const bounty = bounties[ci(victim)];
+    if (bounty && bounty.total > 0) {
+      const mentions = Object.keys(bounty.posters)
+        .map(id => `<@${id}>`)
+        .join(" ");
+
+      const claimEmbed = new EmbedBuilder()
+        .setTitle("💸 Bounty Claimed!")
+        .setDescription(
+          `**${victim}** was killed by **${killer}**.\n` +
+          `Total bounty paid out: **${bounty.total.toLocaleString()} coins (${abbreviateGP(bounty.total)})**`
+        )
+        .setColor(0xFFAA00)
+        .setTimestamp();
+
+      await ch.send({ content: mentions, embeds: [claimEmbed] });
+
+      delete bounties[ci(victim)];   // clear the bounty
+      saveData();
+    }
+
+    // persist everything done above
     saveData();
     return res.status(200).send("ok");
   } catch (err) {
@@ -777,11 +805,15 @@ client.on(Events.MessageCreate, async msg => {
           .setColor(0xFFAA00)
           .setTimestamp();
         Object.entries(bounties)
-          .sort((a, b) => b[1] - a[1])
-          .forEach(([n, gp]) =>
+		  .sort((a, b) => b[1].total - a[1].total)
+		  .forEach(([n, obj]) =>
             e.addFields({
               name: n,
-              value: `${gp.toLocaleString()} coins (${abbreviateGP(gp)})`,
+              value:
+			`   ${obj.total.toLocaleString()} coins (${abbreviateGP(obj.total)})\n` +
+			    Object.entries(obj.posters)
+			     .map(([uid, amt]) => `• <@${uid}> — ${abbreviateGP(amt)}`)
+			     .join("\n"),
               inline: false
             })
           );
@@ -804,19 +836,30 @@ client.on(Events.MessageCreate, async msg => {
         }
 
         const key = ci(name);
-        if (sub === "add") {
-          bounties[key] = (bounties[key] || 0) + amount;
-        } else {
-          bounties[key] = Math.max(0, (bounties[key] || 0) - amount);
-          if (bounties[key] === 0) delete bounties[key];
-        }
+        if (!bounties[key]) bounties[key] = { total: 0, posters: {} };
+		if (sub === "add") {
+		  bounties[key].total            += amount;
+		  bounties[key].posters[msg.author.id] =
+			(bounties[key].posters[msg.author.id] || 0) + amount;
+		} else {                   // remove
+		  bounties[key].total            = Math.max(0, bounties[key].total - amount);
+		  bounties[key].posters[msg.author.id] =
+			Math.max(0, (bounties[key].posters[msg.author.id] || 0) - amount);
+		  if (bounties[key].posters[msg.author.id] === 0)
+			delete bounties[key].posters[msg.author.id];
+		  if (bounties[key].total === 0) delete bounties[key];
+		}
         saveData();
-        return sendEmbed(
+                return sendEmbed(
           msg.channel,
           sub === "add" ? "➕ Bounty Added" : "➖ Bounty Reduced",
-          `**${name}** ➜ ${bounties[key] ? `${bounties[key].toLocaleString()} coins (${abbreviateGP(bounties[key])})` : "no bounty"}`
+          `**${name}** ➜ ${
+            bounties[key]
+              ? `${bounties[key].total.toLocaleString()} coins (${abbreviateGP(bounties[key].total)})`
+              : "no bounty"
+          }`
         );
-      }
+      }                               // ← closes add/remove branch
 
       // unknown sub-command
       return sendEmbed(
@@ -824,7 +867,7 @@ client.on(Events.MessageCreate, async msg => {
         "⚠️ Usage",
         "`!bounty list` or `!bounty add|remove <name> <amount>`"
       );
-    }
+    }                                 // ← closes the whole !bounty block
 
 
 
