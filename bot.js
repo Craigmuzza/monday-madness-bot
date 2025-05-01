@@ -822,8 +822,8 @@ client.on(Events.MessageCreate, async msg => {
 
       // !bounty add/remove <name> <amount>
       if (["add", "remove"].includes(sub)) {
-        const name   = (args.shift() || "").trim();
-        const amount = parseGPString(args.shift());
+        const amount = parseGPString(args.pop());  // last token
+  		const name   = args.join(" ").trim();      // everything else
         if (!name || isNaN(amount) || amount <= 0) {
           return sendEmbed(
             msg.channel,
