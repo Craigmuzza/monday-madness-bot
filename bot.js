@@ -38,7 +38,7 @@ const DATA_DIR = "/data";
   }
 })();
 
-// ── Configure Git user for commits (Render doesn’t set these) ─
+// ── Configure Git user for commits (Render doesn't set these) ─
 ;(function setGitIdentity() {
   try {
     spawnSync("git", ["config", "user.email", "bot@localhost"], { cwd: __dirname });
@@ -82,6 +82,7 @@ const client = new Client({
 let currentEvent = "default";
 let clanOnlyMode = false;
 const registered = new Set();
+const raglist = new Set();
 const seen       = new Map();
 const events     = {
   default: { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} }
@@ -150,10 +151,14 @@ function saveData() {
       path.join(DATA_DIR, "registered.json"),
       JSON.stringify([...registered], null, 2)
     );
-
-    commitToGitHub();
+    fs.writeFileSync(
+      path.join(DATA_DIR, "raglist.json"),
+      JSON.stringify([...raglist], null, 2)
+    );
+    
+    commitToGitHub();  // Commit the data to GitHub
   } catch (err) {
-    console.error("[save] Failed to save data:", err);
+    console.error("[save] Failed to save data:", err);  // Handle any errors
   }
 }
 
@@ -168,6 +173,13 @@ function loadData() {
       console.log(`[init] loaded ${registered.size} registered names`);
     }
 
+    const raglistPath = path.join(DATA_DIR, "raglist.json");
+    if (fs.existsSync(raglistPath)) {
+      const arr = JSON.parse(fs.readFileSync(raglistPath));
+      if (Array.isArray(arr)) arr.forEach(n => raglist.add(ci(n)));
+      console.log(`[init] loaded ${raglist.size} raglist names`);
+    }
+
     const statePath = path.join(DATA_DIR, "state.json");
     if (fs.existsSync(statePath)) {
       const state = JSON.parse(fs.readFileSync(statePath));
@@ -179,7 +191,7 @@ function loadData() {
       console.log("[init] loaded saved state");
     }
   } catch (err) {
-    console.error("[init] Failed to load data:", err);
+    console.error("[init] Failed to load data:", err);  // Handle any errors
   }
 }
 
@@ -247,6 +259,16 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
     if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
 
+	// Alert if victim is in the raglist
+    if (raglist.has(ci(victim))) {
+      await sendEmbed(
+        ch,
+        "⚔️ Raglist Alert!",
+        `@here **${victim}** is on the Raglist! Time to hunt them down!`
+      );
+    }
+
+    // auto-register killer if new
     const key = ci(killer);
     if (!registered.has(key)) {
       registered.add(key);
@@ -258,6 +280,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
       commitToGitHub();
     }
 
+    // persist everything
     saveData();
     return res.status(200).send("ok");
   } catch (err) {
@@ -382,12 +405,9 @@ function filterByPeriod(log, period) {
 
 function toCSV(rows, headers) {
   const esc = v => `"${String(v).replace(/"/g,'""')}"`;
-  // build up an array of CSV lines
   const lines = [ headers.join(",") ];
   for (const row of rows) {
-    lines.push(
-      headers.map(h => esc(row[h])).join(",")
-    );
+    lines.push(headers.map(h => esc(row[h])).join(","));
   }
   return lines.join("\n");
 }
@@ -395,7 +415,6 @@ function toCSV(rows, headers) {
 // ── Discord commands ─────────────────────────────────────────
 client.on(Events.MessageCreate, async msg => {
   if (msg.author.bot) return;
-
   const text = msg.content.trim();
   if (!text.startsWith("!")) return;
   if (!checkCooldown(msg.author.id)) {
@@ -406,6 +425,7 @@ client.on(Events.MessageCreate, async msg => {
   const args = text.split(/\s+/);
   const cmd  = args.shift();
 
+  // helper for lootboard
   const makeLootBoard = arr => {
     const sums = {};
     arr.forEach(({ killer, gp }) => {
@@ -425,10 +445,12 @@ client.on(Events.MessageCreate, async msg => {
         period = args.shift().toLowerCase();
       }
       const nameFilter = args.join(" ").toLowerCase() || null;
+
       const all = filterByPeriod(killLog, period);
       const normal = all.filter(e => !e.isClan);
       const clan   = all.filter(e => e.isClan);
 
+      // build boards
       const makeBoard = arr => {
         const counts = {};
         arr.forEach(({ killer }) => {
@@ -445,25 +467,39 @@ client.on(Events.MessageCreate, async msg => {
       const normalBoard = makeBoard(normal);
       const clanBoard   = makeBoard(clan);
 
+      // send normal hiscores
       const e1 = new EmbedBuilder()
         .setTitle(`🏆 Hiscores (${period})`)
         .setColor(0xFF0000)
         .setTimestamp();
-      if (!normalBoard.length) e1.setDescription("No kills in that period.");
-      else normalBoard.forEach(r =>
-        e1.addFields({ name:`${r.rank}. ${r.name}`, value:`Kills: ${r.kills}`, inline:false })
-      );
+      if (!normalBoard.length) {
+        e1.setDescription("No kills in that period.");
+      } else {
+        normalBoard.forEach(r =>
+          e1.addFields({ name:`${r.rank}. ${r.name}`, value:`Kills: ${r.kills}`, inline:false })
+        );
+      }
 
-      const e2 = new EmbedBuilder()
-        .setTitle(`✨ Clan Hiscores (${period})`)
-        .setColor(0x00CC88)
-        .setTimestamp();
-      if (!clanBoard.length) e2.setDescription("No clan-vs-clan kills.");
-      else clanBoard.forEach(r =>
-        e2.addFields({ name:`${r.rank}. ${r.name}`, value:`Kills: ${r.kills}`, inline:false })
-      );
+      // collect embeds to send
+      const embeds = [e1];
 
-      return msg.channel.send({ embeds: [e1, e2] });
+      // only show clan board if we're in an event
+      if (currentEvent !== "default") {
+        const e2 = new EmbedBuilder()
+          .setTitle(`✨ Clan Hiscores (${period}) — Event: ${currentEvent}`)
+          .setColor(0x00CC88)
+          .setTimestamp();
+        if (!clanBoard.length) {
+          e2.setDescription("No clan-vs-clan kills in that period.");
+        } else {
+          clanBoard.forEach(r =>
+            e2.addFields({ name:`${r.rank}. ${r.name}`, value:`Kills: ${r.kills}`, inline:false })
+          );
+        }
+        embeds.push(e2);
+	  }
+
+      return msg.channel.send({ embeds });
     }
 
     // ── !totalgp / !totalloot ────────────────────────────────────
@@ -484,40 +520,68 @@ client.on(Events.MessageCreate, async msg => {
         period = args.shift().toLowerCase();
       }
       const nameFilter = args.join(" ").toLowerCase() || null;
+
       const all    = filterByPeriod(lootLog, period);
       const normal = all.filter(e => !e.isClan);
       const clan   = all.filter(e => e.isClan);
 
+      // build top-10
+      const makeLootBoard = arr => {
+        const sums = {};
+        arr.forEach(({ killer, gp }) => {
+          const k = killer.toLowerCase();
+          if (nameFilter && k !== nameFilter) return;
+          sums[k] = (sums[k]||0) + gp;
+        });
+        return Object.entries(sums)
+          .sort((a,b) => b[1] - a[1])
+          .slice(0,10)
+          .map(([n,v],i) => ({ rank:i+1, name:n, gp:v }));
+      };
+
       const normalBoard = makeLootBoard(normal);
       const clanBoard   = makeLootBoard(clan);
 
+      // normal lootboard embed
       const e1 = new EmbedBuilder()
         .setTitle(`💰 Lootboard (${period})`)
         .setColor(0xFF0000)
         .setTimestamp();
-      if (!normalBoard.length) e1.setDescription("No loot in that period.");
-      else normalBoard.forEach(r =>
-        e1.addFields({
-          name:  `${r.rank}. ${r.name}`,
-          value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)} GP)`,
-          inline: false
-        })
-      );
+      if (!normalBoard.length) {
+        e1.setDescription("No loot in that period.");
+      } else {
+        normalBoard.forEach(r =>
+          e1.addFields({
+            name:  `${r.rank}. ${r.name}`,
+            value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
+            inline: false
+          })
+        );
+      }
 
-      const e2 = new EmbedBuilder()
-        .setTitle(`💎 Clan Lootboard (${period})`)
-        .setColor(0x00CC88)
-        .setTimestamp();
-      if (!clanBoard.length) e2.setDescription("No clan-vs-clan loot.");
-      else clanBoard.forEach(r =>
-        e2.addFields({
-          name:  `${r.rank}. ${r.name}`,
-          value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)} GP)`,
-          inline: false
-        })
-      );
+      const embeds = [e1];
 
-      return msg.channel.send({ embeds: [e1, e2] });
+      // only show clan lootboard when in an event
+      if (currentEvent !== "default") {
+        const e2 = new EmbedBuilder()
+          .setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
+          .setColor(0x00CC88)
+          .setTimestamp();
+        if (!clanBoard.length) {
+          e2.setDescription("No clan-vs-clan loot in that period.");
+        } else {
+          clanBoard.forEach(r =>
+            e2.addFields({
+              name:  `${r.rank}. ${r.name}`,
+              value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
+              inline: false
+            })
+          );
+        }
+        embeds.push(e2);
+      }
+
+      return msg.channel.send({ embeds });
     }
 
     // ── !export ───────────────────────────────────────────────────
@@ -561,28 +625,33 @@ client.on(Events.MessageCreate, async msg => {
 
     // ── !register / !unregister ──────────────────────────────────
     if (cmd === "!register" || cmd === "!unregister") {
-      const names = text.slice(cmd.length + 1)
-        .split(",")
-        .map(ci)
-        .filter(Boolean);
-      if (!names.length) {
-        return sendEmbed(msg.channel, "⚠️ Error", "Provide one or more comma-separated names.");
-      }
-      names.forEach(n => {
-        if (cmd === "!register") registered.add(n);
-        else                     registered.delete(n);
-      });
-      fs.writeFileSync(
-        path.join(__dirname,"data/registered.json"),
-        JSON.stringify([...registered],null,2)
-      );
-      await commitToGitHub();
-      return sendEmbed(
-        msg.channel,
-        cmd === "!register" ? "➕ Registered" : "➖ Unregistered",
-        names.join(", ")
-      );
-    }
+		try {
+		const names = text.slice(cmd.length + 1)
+		  .split(",")
+		  .map(ci)
+		  .filter(Boolean);
+		if (!names.length) {
+		  return sendEmbed(msg.channel, "⚠️ Error", "Provide one or more comma-separated names.");
+		}
+		names.forEach(n => {
+		  if (cmd === "!register") registered.add(n);
+		  else                     registered.delete(n);
+		});
+		fs.writeFileSync(
+		  path.join(__dirname,"data/registered.json"), 
+		  JSON.stringify([...registered],null,2)
+		);
+		await commitToGitHub();
+		return sendEmbed(
+		  msg.channel,
+		  cmd === "!register" ? "➕ Registered" : "➖ Unregistered",
+		  names.join(", ")
+		);
+	  } catch (err) {
+		console.error(`[${cmd}] Error:`, err);
+		return sendEmbed(msg.channel, "⚠️ Error", `Failed to ${cmd.slice(1)}: ${err.message}`);
+	  }
+	}
 
     // ── !clanonly ────────────────────────────────────────────────
     if (lc === "!clanonly on") {
@@ -622,26 +691,57 @@ client.on(Events.MessageCreate, async msg => {
       return sendEmbed(msg.channel, "✅ Event Finished", `Saved to \`${file}\`, back to **default**.`);
     }
 
-    // ── !help ───────────────────────────────────────────────────
-    if (lc === "!help") {
-      const help = new EmbedBuilder()
-        .setTitle("🛠 Robo-Rat Help")
-        .setColor(0xFF0000)
-        .setTimestamp()
-        .addFields([
-          { name: "Stats", value: "`!hiscores [daily|weekly|monthly|all] [name]`\n`!lootboard [period] [name]`\n`!totalgp`", inline:false },
-          { name: "Export CSV", value:"`!export hiscores|lootboard [period]`", inline:false },
-          { name: "Clan", value:"`!register <n1,n2>`\n`!unregister <n1,n2>`\n`!listclan`\n`!clanonly on/off`", inline:false },
-          { name: "Events", value:"`!createevent <name>`\n`!finishevent`\n`!listevents`", inline:false },
-          { name: "Misc", value:"`!help`", inline:false }
-        ]);
-      return msg.channel.send({ embeds: [help] });
-    }
+		// ── !raglist command ─────────────────────────────────────────────
+	if (lc.startsWith("!raglist")) {
+	  if (lc === "!raglist") {
+		return sendEmbed(msg.channel, "⚔️ Raglist", 
+		  raglist.size ? `Raglist: ${[...raglist].join(", ")}` : "No players in the raglist."
+		);
+	  }
 
-  } catch (err) {
-    console.error("[command] Error processing command:", cmd, err);
-    return sendEmbed(msg.channel, "❌ Command Error", "An error occurred while processing your command.");
-  }
+	  // Add a player to the raglist
+	  if (lc.startsWith("!raglist add")) {
+		const name = text.slice("!raglist add".length).trim();
+		if (!name) return sendEmbed(msg.channel, "⚠️ Error", "Please provide a name to add.");
+		raglist.add(ci(name));
+		saveData();
+		return sendEmbed(msg.channel, "➕ Added to Raglist", name);
+	  }
+
+	  // Remove a player from the raglist
+	  if (lc.startsWith("!raglist remove")) {
+		const name = text.slice("!raglist remove".length).trim();
+		if (!name) return sendEmbed(msg.channel, "⚠️ Error", "Please provide a name to remove.");
+		if (!raglist.has(ci(name))) {
+		  return sendEmbed(msg.channel, "⚠️ Error", "That name is not in the raglist.");
+		}
+		raglist.delete(ci(name));
+		saveData();
+		return sendEmbed(msg.channel, "➖ Removed from Raglist", name);
+	  }
+	}
+
+
+	   // ── !help ───────────────────────────────────────────────────
+	if (lc === "!help") {
+	  const help = new EmbedBuilder()
+		.setTitle("🛠 Robo-Rat Help")
+		.setColor(0xFF0000)  // Set the embed colour to yellow
+		.setTimestamp()
+		.addFields([
+		  { name: "Stats", value: "`!hiscores [daily|weekly|monthly|all] [name]`\n`!lootboard [period] [name]`\n`!totalgp`", inline:false },
+		  { name: "Export CSV", value:"`!export hiscores|lootboard [period]`", inline:false },
+		  { name: "Clan", value:"`!register <n1,n2>`\n`!unregister <n1,n2>`\n`!listclan`\n`!clanonly on/off`", inline:false },
+		  { name: "Events", value:"`!createevent <name>`\n`!finishevent`\n`!listevents`", inline:false },
+		  { name: "Raglist", value:"`!raglist` - View raglist\n`!raglist add <name>` - Add player to raglist\n`!raglist remove <name>` - Remove player from raglist", inline:false },
+		  { name: "Misc", value:"`!help`", inline:false }
+		]);
+	  return msg.channel.send({ embeds: [help] });
+	}
+} catch (err) {
+  console.error("[command] Error handling command:", err);
+  return sendEmbed(msg.channel, "⚠️ Error", "An error occurred while processing your command.");
+}
 });
 
 client.once("ready", () => console.log(`[discord] ready: ${client.user.tag}`));
