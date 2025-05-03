@@ -825,46 +825,57 @@ client.on(Events.MessageCreate, async msg => {
 	  // first word after !bounty
 	  const sub = (args.shift() || "").toLowerCase();
 
-	  /* ---------- LIST ---------- */
-	  if (sub === "list") {
-		const persistent = [];
-		const oneShot    = [];
+/* ---------- LIST  (always show both pools) ----------------- */
+if (sub === "list") {
+  /* gather rows */
+  const persistent = [];
+  const oneShot    = [];
 
-		Object.entries(bounties)
-		  .sort((a, b) => b[1].total - a[1].total)
-		  .forEach(([name, obj]) =>
-			(obj.persistent ? persistent : oneShot).push([name, obj])
-		  );
+  Object.entries(bounties).forEach(([name, rec]) => {
+    if (rec?.persistent?.total > 0)
+      persistent.push([name, rec.persistent]);
+    if (rec?.once?.total > 0)
+      oneShot.push([name, rec.once]);
+  });
 
-		if (!persistent.length && !oneShot.length) {
-		  return sendEmbed(msg.channel, "💰 Bounties", "No active bounties.");
-		}
+  if (!persistent.length && !oneShot.length) {
+    return sendEmbed(msg.channel, "💰 Bounties", "No active bounties.");
+  }
 
-		const toEmbed = (title, rows) => {
-		  const e = new EmbedBuilder()
-			.setTitle(title)
-			.setColor(0xFFAA00)
-			.setTimestamp();
-		  rows.forEach(([n, obj]) =>
-			e.addFields({
-			  name: n + (obj.persistent ? " 🕒" : ""),
-			  value:
-				`${obj.total.toLocaleString()} coins (${abbreviateGP(obj.total)})\n` +
-				Object.entries(obj.posters)
-				  .map(([uid, amt]) => `• <@${uid}> — ${abbreviateGP(amt)}`)
-				  .join("\n"),
-			  inline: false
-			})
-		  );
-		  return e;
-		};
+  /* helper to build an embed safely */
+  const toEmbed = (title, rows) => {
+    const e = new EmbedBuilder()
+      .setTitle(title)
+      .setColor(0xFFAA00)
+      .setTimestamp();
 
-		const embeds = [];
-		if (persistent.length) embeds.push(toEmbed("🕒 Persistent Bounties", persistent));
-		if (oneShot.length)    embeds.push(toEmbed("💰 One‑Shot Bounties", oneShot));
+    rows
+      .sort((a, b) => b[1].total - a[1].total)           // high‑to‑low
+      .forEach(([n, obj]) => {
+        const amount = obj?.total ?? 0;                  // <- guard
+        e.addFields({
+          name: n,
+          value:
+            `${amount.toLocaleString()} coins (${abbreviateGP(amount)})\n` +
+            Object.entries(obj.posters || {})
+              .map(([uid, amt]) => `• <@${uid}> — ${abbreviateGP(amt)}`)
+              .join("\n"),
+          inline: false
+        });
+      });
+    return e;
+  };
 
-		return msg.channel.send({ embeds });
-	  }
+  /* build the embeds */
+  const embeds = [];
+  if (persistent.length)
+    embeds.push(toEmbed("🕒 Persistent Bounties", persistent));
+  if (oneShot.length)
+    embeds.push(toEmbed("💰 One‑Shot Bounties", oneShot));
+
+  return msg.channel.send({ embeds });
+}
+
 
 	/* ---------- ADD‑PERSISTENT ---------- */
 if (sub === "addp" || sub === "addpersistent") {
