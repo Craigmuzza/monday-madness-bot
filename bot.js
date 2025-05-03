@@ -362,37 +362,55 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
         ? `\nCurrent bounty: **${bountyTotal.toLocaleString()} coins (${abbreviateGP(bountyTotal)})**`
         : "";
 
-      await sendEmbed(
-        ch,
-        "⚔️ Raglist Alert!",
-        `@here **${victim}** is on the Raglist! Time to hunt them down!${bountyLine}`
-      );
-    }
-
-    // ── Bounty claimed ────────────────────────────────────────
-    const bounty = bounties[ci(victim)];
-    if (bounty && bounty.total > 0) {
-      const mentions = Object.keys(bounty.posters)
-        .map(id => `<@${id}>`)
-        .join(" ");
-
-      const claimEmbed = new EmbedBuilder()
-        .setTitle("💸 Bounty Claimed!")
-        .setDescription(
-          `**${victim}** was killed by **${killer}**.\n` +
-          `Total bounty paid out: **${bounty.total.toLocaleString()} coins (${abbreviateGP(bounty.total)})**`
-        )
-        .setColor(0xFFAA00)
-		.setThumbnail(EMBED_ICON)
+      // build a proper embed without the @here
+      const ragEmbed = new EmbedBuilder()
+        .setTitle("⚔️ Raglist Alert!")
+        .setDescription(`**${victim}** is on the Raglist! Time to hunt them down!${bountyLine}`)
+        .setThumbnail(EMBED_ICON)
+        .setColor(0xFF0000)
         .setTimestamp();
 
-      await ch.send({ content: mentions, embeds: [claimEmbed] });
-
-		if (!bounty.persistent) {
-		delete bounties[ci(victim)]; // one‑shot bounty
-}
-      saveData();
+      // put the @here in the content so it actually pings
+      await ch.send({ content: "@here", embeds: [ragEmbed] });
     }
+
+// ── Bounty claimed ────────────────────────────────────────
+const record = bounties[ci(victim)];
+if (record) {
+  const oneShot    = record.once.total    || 0;
+  const persistent = record.persistent.total || 0;
+  const paid       = oneShot + persistent;
+
+  if (paid > 0) {
+    // mention everyone who put up a bounty
+    const mentions = Object.keys({
+      ...record.once.posters,
+      ...record.persistent.posters
+    }).map(id => `<@${id}>`).join(" ");
+
+    const claimEmbed = new EmbedBuilder()
+      .setTitle("💸 Bounty Claimed!")
+      .setDescription(
+        `**${victim}** was killed by **${killer}**.\n` +
+        `Total bounty paid out: **${paid.toLocaleString()} coins (${abbreviateGP(paid)})**`
+      )
+      .setColor(0xFFAA00)
+      .setThumbnail(EMBED_ICON)
+      .setTimestamp();
+
+    await ch.send({ content: mentions, embeds: [claimEmbed] });
+
+    // clear one-shot pool, leave persistent for next kill
+    record.once.total = 0;
+    record.once.posters = {};
+
+    // if no persistent bounty either, delete the record
+    if (record.persistent.total === 0) {
+      delete bounties[ci(victim)];
+    }
+    saveData();
+  }
+}
 
     // persist everything done above
     saveData();
