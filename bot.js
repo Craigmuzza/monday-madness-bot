@@ -797,30 +797,49 @@ client.on(Events.MessageCreate, async msg => {
     if (cmd === "!bounty") {
       const sub = (args.shift() || "").toLowerCase();
 
-      // !bounty list
-      if (sub === "list") {
-        if (!Object.keys(bounties).length) {
-          return sendEmbed(msg.channel, "💰 Bounties", "No active bounties.");
-        }
-        const e = new EmbedBuilder()
-          .setTitle("💰 Active Bounties")
-          .setColor(0xFFAA00)
-          .setTimestamp();
-        Object.entries(bounties)
-		  .sort((a, b) => b[1].total - a[1].total)
-		  .forEach(([n, obj]) =>
-            e.addFields({
-              name: n,
-              value:
-			`   ${obj.total.toLocaleString()} coins (${abbreviateGP(obj.total)})\n` +
-			    Object.entries(obj.posters)
-			     .map(([uid, amt]) => `• <@${uid}> — ${abbreviateGP(amt)}`)
-			     .join("\n"),
-              inline: false
-            })
-          );
-        return msg.channel.send({ embeds: [e] });
-      }
+		/* ── LIST  (always show both types) ────────────────────────── */
+		if (sub === "list") {
+		  const persistent   = [];
+		  const oneShot      = [];
+
+		  Object.entries(bounties)
+			.sort((a, b) => b[1].total - a[1].total)
+			.forEach(([name, obj]) =>
+			  (obj.persistent ? persistent : oneShot).push([name, obj])
+			);
+
+		  if (!persistent.length && !oneShot.length) {
+			return sendEmbed(msg.channel, "💰 Bounties", "No active bounties.");
+		  }
+
+		  const makeEmbed = (title, rows) => {
+			const e = new EmbedBuilder()
+			  .setTitle(title)
+			  .setColor(0xFFAA00)
+			  .setTimestamp();
+			rows.forEach(([n, obj]) =>
+			  e.addFields({
+				name: n,
+				value:
+				  `${obj.total.toLocaleString()} coins (${abbreviateGP(obj.total)})\n` +
+				  Object.entries(obj.posters)
+					.map(([uid, amt]) => `• <@${uid}> — ${abbreviateGP(amt)}`)
+					.join("\n"),
+				inline: false
+			  })
+			);
+			return e;
+		  };
+
+		  const embeds = [];
+		  if (persistent.length)
+			embeds.push(makeEmbed("🕒 Persistent Bounties", persistent));
+		  if (oneShot.length)
+			embeds.push(makeEmbed("💰 One‑Shot Bounties", oneShot));
+
+		  return msg.channel.send({ embeds });
+		}
+
 		// !bounty addp <name> <amount>   (persistent add)
 		if (sub === "addp" || sub === "addpersistent") {
 		  // parse name & amount just like add/remove
