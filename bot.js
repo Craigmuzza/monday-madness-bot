@@ -224,17 +224,44 @@ function loadData() {
       console.log("[init] loaded saved state");
     }
 	const bountyPath = path.join(DATA_DIR, "bounties.json");
-	if (fs.existsSync(bountyPath)) {
-	Object.assign(bounties, JSON.parse(fs.readFileSync(bountyPath)));
-	 // add a sanity check for legacy "number" values
-	Object.entries(bounties).forEach(([k, v]) => {
-	  if (typeof v === "number") {
-       bounties[k] = { total: v, posters: {} };
-   }
- });
-      console.log(`[init] loaded ${Object.keys(bounties).length} bounties`);
+  if (fs.existsSync(bountyPath)) {
+    // 1) load the raw file
+    Object.assign(bounties, JSON.parse(fs.readFileSync(bountyPath)));
+
+    // 2) normalise every entry to { once:{}, persistent:{} }
+    Object.entries(bounties).forEach(([k, v]) => {
+      /* case A : very old flat format  { total, posters, persistent } */
+      if (typeof v.total === "number") {
+        bounties[k] = {
+          once:       { total: v.persistent ? 0 : v.total, posters: v.posters || {} },
+          persistent: { total: v.persistent ? v.total    : 0,       posters: v.posters || {} }
+        };
+        return;
+      }
+
+      /* case B : early hybrid format  { once:{…}, persistent:true/false } */
+      if (typeof v.persistent === "boolean") {
+        bounties[k] = {
+          once:       v.once || { total: 0, posters: {} },
+          persistent: v.persistent
+                       ? (v.persistent.total !== undefined ? v.persistent
+                                                           : { total: 0, posters: {} })
+                       : { total: 0, posters: {} }
+        };
+        return;
+      }
+
+      /* case C : very old numeric‑only record  v === 25_000_000 */
+      if (typeof v === "number") {
+        bounties[k] = {
+          once:       { total: v, posters: {} },
+          persistent: { total: 0, posters: {} }
+        };
+      }
+    });
+
+    console.log(`[init] loaded & normalised ${Object.keys(bounties).length} bounties`);
   }
-	
   } catch (err) {
     console.error("[init] Failed to load data:", err);  // Handle any errors
   }
@@ -839,31 +866,58 @@ client.on(Events.MessageCreate, async msg => {
 		return msg.channel.send({ embeds });
 	  }
 
-	  /* ---------- ADD‑PERSISTENT ---------- */
-	  if (sub === "addp" || sub === "addpersistent") {
-		const amount = parseGPString(args.pop());      // last token
-		const name   = args.join(" ").trim();          // everything before it
-		if (!name || isNaN(amount) || amount <= 0) {
-		  return sendEmbed(msg.channel, "⚠️ Usage",
-			"`!bounty addp <raglist-name> <amount>`");
-		}
-		if (!raglist.has(ci(name))) {
-		  return sendEmbed(msg.channel, "⚠️ Error", "That name is not in the raglist.");
-		}
+	/* ---------- ADD‑PERSISTENT ---------- */
+if (sub === "addp" || sub === "addpersistent") {
+  // ── pull amount (last token) + name (everything before it)
+  const amount = parseGPString(args.pop());
+  const name   = args.join(" ").trim();
 
-		const key = ci(name);
-		if (!bounties[key]) bounties[key] = { total: 0, posters: {}, persistent: true };
-		  bounties[key].persistent.total += amount;
-		  bounties[key].persistent.posters[msg.author.id] =
-		    (bounties[key].persistent.posters[msg.author.id] || 0) + amount;
+  // ── basic validation
+  if (!name || isNaN(amount) || amount <= 0) {
+    return sendEmbed(
+      msg.channel,
+      "⚠️ Usage",
+      "`!bounty addp <raglist-name> <amount>`"
+    );
+  }
+  if (!raglist.has(ci(name))) {
+    return sendEmbed(msg.channel, "⚠️ Error", "That name is not in the raglist.");
+  }
 
-		saveData();
-		return sendEmbed(
-		  msg.channel,
-		  "📌 Persistent Bounty Added",
-		  `**${name}** ➜ ${abbreviateGP(bounties[key].total)} (pays every kill)`
-		);
-	  }
+  const key = ci(name);
+
+  /* ── ensure a container in the NEW format ───────────────── */
+  if (!bounties[key]) {
+    bounties[key] = {
+      once:       { total: 0, posters: {} },
+      persistent: { total: 0, posters: {} }
+    };
+  }
+
+  /* ── RUNTIME UPGRADE: convert any old boolean/flat record ─ */
+  if (typeof bounties[key].persistent === "boolean") {
+    // old shape: { total, posters, persistent:true|false }
+    bounties[key] = {
+      once:       { total: bounties[key].persistent ? 0 : bounties[key].total || 0,
+                    posters: bounties[key].posters || {} },
+      persistent: { total: bounties[key].persistent ? (bounties[key].total || 0) : 0,
+                    posters: bounties[key].posters || {} }
+    };
+  }
+
+  /* ── now safe: mutate the persistent pool ───────────────── */
+  bounties[key].persistent.total += amount;
+  bounties[key].persistent.posters[msg.author.id] =
+    (bounties[key].persistent.posters[msg.author.id] || 0) + amount;
+
+  saveData();
+
+  return sendEmbed(
+    msg.channel,
+    "📌 Persistent Bounty Added",
+    `**${name}** ➜ ${abbreviateGP(bounties[key].persistent.total)} (pays every kill)`
+  );
+}
 
 	  /* ---------- ADD / REMOVE ---------- */
 	  if (["add", "remove"].includes(sub)) {
