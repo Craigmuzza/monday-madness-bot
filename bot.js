@@ -853,10 +853,9 @@ client.on(Events.MessageCreate, async msg => {
 
 		const key = ci(name);
 		if (!bounties[key]) bounties[key] = { total: 0, posters: {}, persistent: true };
-		bounties[key].total            += amount;
-		bounties[key].persistent        = true;  // flag survives top‑ups
-		bounties[key].posters[msg.author.id] =
-		  (bounties[key].posters[msg.author.id] || 0) + amount;
+		  bounties[key].persistent.total += amount;
+		  bounties[key].persistent.posters[msg.author.id] =
+		    (bounties[key].persistent.posters[msg.author.id] || 0) + amount;
 
 		saveData();
 		return sendEmbed(
@@ -879,19 +878,26 @@ client.on(Events.MessageCreate, async msg => {
 		}
 
 		const key = ci(name);
-		if (!bounties[key]) bounties[key] = { total: 0, posters: {}, persistent: false };
+		if (!bounties[key]) bounties[key] = {
+			once:       { total: 0, posters: {} },
+			persistent: { total: 0, posters: {} }
+		};
 
 		if (sub === "add") {
-		  bounties[key].total            += amount;
-		  bounties[key].posters[msg.author.id] =
-			(bounties[key].posters[msg.author.id] || 0) + amount;
+		  bounties[key].once.total += amount;
+		  bounties[key].once.posters[msg.author.id] =
+			(bounties[key].once.posters[msg.author.id] || 0) + amount;
 		} else {
-		  bounties[key].total            = Math.max(0, bounties[key].total - amount);
-		  bounties[key].posters[msg.author.id] =
-			Math.max(0, (bounties[key].posters[msg.author.id] || 0) - amount);
-		  if (bounties[key].posters[msg.author.id] === 0)
-			delete bounties[key].posters[msg.author.id];
-		  if (bounties[key].total === 0) delete bounties[key];
+		   bounties[key].once.total = Math.max(0, bounties[key].once.total - amount);
+		   bounties[key].once.posters[msg.author.id] =
+			 Math.max(0, (bounties[key].once.posters[msg.author.id] || 0) - amount);
+		   if (bounties[key].once.posters[msg.author.id] === 0)
+			 delete bounties[key].once.posters[msg.author.id];
+		   /* delete the whole entry only if *both* pools are empty */
+		   if (
+			 bounties[key].once.total       === 0 &&
+			 bounties[key].persistent.total === 0
+		   ) delete bounties[key];
 		}
 
 		saveData();
@@ -899,8 +905,8 @@ client.on(Events.MessageCreate, async msg => {
 		  msg.channel,
 		  sub === "add" ? "➕ Bounty Added" : "➖ Bounty Reduced",
 		  `**${name}** ➜ ${
-			bounties[key]
-			  ? `${bounties[key].total.toLocaleString()} coins (${abbreviateGP(bounties[key].total)})`
+		bounties[key]
+			? `${bounties[key].once.total.toLocaleString()} coins (${abbreviateGP(bounties[key].once.total)})`
 			  : "no bounty"
 		  }`
 		);
