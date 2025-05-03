@@ -793,88 +793,99 @@ client.on(Events.MessageCreate, async msg => {
 	  }
 	}
 
-    // ── !bounty ────────────────────────────────────────────────
-    if (cmd === "!bounty") {
-      const sub = (args.shift() || "").toLowerCase();
+		/* ──────────────────────────  BOUNTY COMMAND  ───────────────────────── */
+	if (cmd === "!bounty") {
+	  // first word after !bounty
+	  const sub = (args.shift() || "").toLowerCase();
 
-		/* ── LIST  (always show both types) ────────────────────────── */
-		if (sub === "list") {
-		  const persistent   = [];
-		  const oneShot      = [];
+	  /* ---------- LIST ---------- */
+	  if (sub === "list") {
+		const persistent = [];
+		const oneShot    = [];
 
-		  Object.entries(bounties)
-			.sort((a, b) => b[1].total - a[1].total)
-			.forEach(([name, obj]) =>
-			  (obj.persistent ? persistent : oneShot).push([name, obj])
-			);
+		Object.entries(bounties)
+		  .sort((a, b) => b[1].total - a[1].total)
+		  .forEach(([name, obj]) =>
+			(obj.persistent ? persistent : oneShot).push([name, obj])
+		  );
 
-		  if (!persistent.length && !oneShot.length) {
-			return sendEmbed(msg.channel, "💰 Bounties", "No active bounties.");
-		  }
-
-		  const makeEmbed = (title, rows) => {
-			const e = new EmbedBuilder()
-			  .setTitle(title)
-			  .setColor(0xFFAA00)
-			  .setTimestamp();
-			rows.forEach(([n, obj]) =>
-			  e.addFields({
-				name: n,
-				value:
-				  `${obj.total.toLocaleString()} coins (${abbreviateGP(obj.total)})\n` +
-				  Object.entries(obj.posters)
-					.map(([uid, amt]) => `• <@${uid}> — ${abbreviateGP(amt)}`)
-					.join("\n"),
-				inline: false
-			  })
-			);
-			return e;
-		  };
-
-		  const embeds = [];
-		  if (persistent.length)
-			embeds.push(makeEmbed("🕒 Persistent Bounties", persistent));
-		  if (oneShot.length)
-			embeds.push(makeEmbed("💰 One‑Shot Bounties", oneShot));
-
-		  return msg.channel.send({ embeds });
+		if (!persistent.length && !oneShot.length) {
+		  return sendEmbed(msg.channel, "💰 Bounties", "No active bounties.");
 		}
 
-		// !bounty addp <name> <amount>   (persistent add)
-		if (sub === "addp" || sub === "addpersistent") {
-		  // parse name & amount just like add/remove
-		  if (!bounties[key]) bounties[key] = { total: 0, posters: {}, persistent: true };
-		  bounties[key].total     += amount;
-		  bounties[key].persistent = true;                 // make sure flag is set
-		  bounties[key].posters[msg.author.id] =
-			(bounties[key].posters[msg.author.id] || 0) + amount;
-		  saveData();
-		  return sendEmbed(msg.channel,"📌 Persistent Bounty Added",
-			`**${name}** ➜ ${abbreviateGP(bounties[key].total)} (paid every kill)`);
-}
+		const toEmbed = (title, rows) => {
+		  const e = new EmbedBuilder()
+			.setTitle(title)
+			.setColor(0xFFAA00)
+			.setTimestamp();
+		  rows.forEach(([n, obj]) =>
+			e.addFields({
+			  name: n + (obj.persistent ? " 🕒" : ""),
+			  value:
+				`${obj.total.toLocaleString()} coins (${abbreviateGP(obj.total)})\n` +
+				Object.entries(obj.posters)
+				  .map(([uid, amt]) => `• <@${uid}> — ${abbreviateGP(amt)}`)
+				  .join("\n"),
+			  inline: false
+			})
+		  );
+		  return e;
+		};
 
-      // !bounty add/remove <name> <amount>
-      if (["add", "remove"].includes(sub)) {
-        const amount = parseGPString(args.pop());  // last token
-  		const name   = args.join(" ").trim();      // everything else
-        if (!name || isNaN(amount) || amount <= 0) {
-          return sendEmbed(
-            msg.channel,
-            "⚠️ Usage",
-            "`!bounty add|remove <raglist-name> <amount>`  (e.g. `!bounty add ZammyTroll 10m`)"
-          );
-        }
-        if (!raglist.has(ci(name))) {
-          return sendEmbed(msg.channel, "⚠️ Error", "That name is not in the raglist.");
-        }
+		const embeds = [];
+		if (persistent.length) embeds.push(toEmbed("🕒 Persistent Bounties", persistent));
+		if (oneShot.length)    embeds.push(toEmbed("💰 One‑Shot Bounties", oneShot));
 
-        const key = ci(name);
-        if (!bounties[key]) bounties[key] = { total: 0, posters: {}, persistent: false };
+		return msg.channel.send({ embeds });
+	  }
+
+	  /* ---------- ADD‑PERSISTENT ---------- */
+	  if (sub === "addp" || sub === "addpersistent") {
+		const amount = parseGPString(args.pop());      // last token
+		const name   = args.join(" ").trim();          // everything before it
+		if (!name || isNaN(amount) || amount <= 0) {
+		  return sendEmbed(msg.channel, "⚠️ Usage",
+			"`!bounty addp <raglist-name> <amount>`");
+		}
+		if (!raglist.has(ci(name))) {
+		  return sendEmbed(msg.channel, "⚠️ Error", "That name is not in the raglist.");
+		}
+
+		const key = ci(name);
+		if (!bounties[key]) bounties[key] = { total: 0, posters: {}, persistent: true };
+		bounties[key].total            += amount;
+		bounties[key].persistent        = true;  // flag survives top‑ups
+		bounties[key].posters[msg.author.id] =
+		  (bounties[key].posters[msg.author.id] || 0) + amount;
+
+		saveData();
+		return sendEmbed(
+		  msg.channel,
+		  "📌 Persistent Bounty Added",
+		  `**${name}** ➜ ${abbreviateGP(bounties[key].total)} (pays every kill)`
+		);
+	  }
+
+	  /* ---------- ADD / REMOVE ---------- */
+	  if (["add", "remove"].includes(sub)) {
+		const amount = parseGPString(args.pop());
+		const name   = args.join(" ").trim();
+		if (!name || isNaN(amount) || amount <= 0) {
+		  return sendEmbed(msg.channel, "⚠️ Usage",
+			"`!bounty add|remove <raglist-name> <amount>`");
+		}
+		if (!raglist.has(ci(name))) {
+		  return sendEmbed(msg.channel, "⚠️ Error", "That name is not in the raglist.");
+		}
+
+		const key = ci(name);
+		if (!bounties[key]) bounties[key] = { total: 0, posters: {}, persistent: false };
+
 		if (sub === "add") {
 		  bounties[key].total            += amount;
 		  bounties[key].posters[msg.author.id] =
 			(bounties[key].posters[msg.author.id] || 0) + amount;
-		} else {                   // remove
+		} else {
 		  bounties[key].total            = Math.max(0, bounties[key].total - amount);
 		  bounties[key].posters[msg.author.id] =
 			Math.max(0, (bounties[key].posters[msg.author.id] || 0) - amount);
@@ -882,26 +893,26 @@ client.on(Events.MessageCreate, async msg => {
 			delete bounties[key].posters[msg.author.id];
 		  if (bounties[key].total === 0) delete bounties[key];
 		}
-        saveData();
-                return sendEmbed(
-          msg.channel,
-          sub === "add" ? "➕ Bounty Added" : "➖ Bounty Reduced",
-          `**${name}** ➜ ${
-            bounties[key]
-              ? `${bounties[key].total.toLocaleString()} coins (${abbreviateGP(bounties[key].total)})`
-              : "no bounty"
-          }`
-        );
-      }                               // ← closes add/remove branch
 
-      // unknown sub-command
-      return sendEmbed(
-        msg.channel,
-        "⚠️ Usage",
-        "`!bounty list` or `!bounty add|remove <name> <amount>`"
-      );
-    }                                 // ← closes the whole !bounty block
+		saveData();
+		return sendEmbed(
+		  msg.channel,
+		  sub === "add" ? "➕ Bounty Added" : "➖ Bounty Reduced",
+		  `**${name}** ➜ ${
+			bounties[key]
+			  ? `${bounties[key].total.toLocaleString()} coins (${abbreviateGP(bounties[key].total)})`
+			  : "no bounty"
+		  }`
+		);
+	  }
 
+	  /* ---------- UNKNOWN SUB‑COMMAND ---------- */
+	  return sendEmbed(
+		msg.channel,
+		"⚠️ Usage",
+		"`!bounty list`, `!bounty add <name> <amount>`, `!bounty addp <name> <amount>`, or `!bounty remove <name> <amount>`"
+	  );
+	}
 
 
 	   // ── !help ───────────────────────────────────────────────────
