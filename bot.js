@@ -897,7 +897,7 @@ client.on(Events.MessageCreate, async msg => {
 		  { name: "Clan", value:"`!register <n1,n2>`\n`!unregister <n1,n2>`\n`!listclan`\n`!clanonly on/off`", inline:false },
 		  { name: "Events", value:"`!createevent <name>`\n`!finishevent`\n`!listevents`", inline:false },
 		  { name: "Raglist", value:"`!raglist` - View raglist\n`!raglist add <name>` - Add player to raglist\n`!raglist remove <name>` - Remove player from raglist", inline:false },
-		  { name: "Bounty",  value:"`!bounty list`\n`!bounty add <name> <amount>`\n`!bounty remove <name> <amount>`", inline:false },
+		  { name: "Bounty",  value:"`!bounty list`\n`!bounty add <name> <amount>`\n`!bounty remove <name> <amount>`\n`!bounty addp <name> <amount>` – persistent bounty (doesn’t disappear on kill)`", inline:false },
 		  { name: "Misc", value:"`!help`", inline:false }
 		]);
 	  return msg.channel.send({ embeds: [help] });
