@@ -468,51 +468,40 @@ app.post(
 
 /* -----------------------------------------------------------------
    Only process clan‑chat that comes from the clan “A Rat Pact”.
-   ─ CLAN_FILTER must already be defined somewhere above, e.g.
-     const CLAN_FILTER = "a rat pact";
------------------------------------------------------------------ */
+------------------------------------------------------------------ */
 if (
   data.type === "CHAT" &&
   ["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) &&
   typeof msg === "string"
 ) {
-  /* try every field we’ve seen the clan name appear in */
   const clanName =
     (
-      data.extra?.clanName   ||  // RuneLite 1.10+
-      data.extra?.clan_name  ||  // some older forks
-      data.extra?.clanTag    ||  // occasionally used
-      data.extra?.clan       ||  // fall‑back
+      data.extra?.clanName   ||   // RuneLite ≥1.10
+      data.extra?.clan_name  ||   // older forks
+      data.extra?.source     ||   // ← NEW: where yours is found
+      data.extra?.clanTag    ||   // other odd variants
+      data.extra?.clan       ||   // generic fallback
       ""
     ).toLowerCase();
 
-  /* ── diagnostic: if we *still* can’t find a clan name, dump the block
-         once so we can inspect it in the logs and add the correct field */
-  if (!clanName) {
-    console.dir(
-      { msgText: msg, extraBlock: data.extra },
-      { depth: null, colors: true }
-    );
-  }
-
-  /* ignore messages from other clans */
-  if (clanName !== CLAN_FILTER) {
+  if (clanName !== CLAN_FILTER) {          // not our clan – ignore
     console.log(`[dink] skipped clan: "${clanName}"`);
-    return res.status(204).end();     // silently discard
+    return res.status(204).end();
   }
 
-  /* our clan — see if the text matches the loot regex */
+  /* our clan — parse the loot message */
   const m = msg.match(LOOT_RE);
   if (m) {
     return processLoot(
-      m[1],                             // killer
-      m[2],                             // victim
-      Number(m[3].replace(/,/g, "")),   // gp
-      msg.trim(),                       // dedup key
+      m[1],                               // killer
+      m[2],                               // victim
+      Number(m[3].replace(/,/g, "")),     // gp
+      msg.trim(),                         // dedup key
       res
     );
   }
 }
+
 
     /* nothing to do */
     return res.status(204).end();
