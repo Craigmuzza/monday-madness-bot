@@ -339,7 +339,9 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
 
       await ch.send({ content: mentions, embeds: [claimEmbed] });
 
-      delete bounties[ci(victim)];   // clear the bounty
+		if (!bounty.persistent) {
+		delete bounties[ci(victim)]; // one‑shot bounty
+}
       saveData();
     }
 
@@ -819,6 +821,18 @@ client.on(Events.MessageCreate, async msg => {
           );
         return msg.channel.send({ embeds: [e] });
       }
+		// !bounty addp <name> <amount>   (persistent add)
+		if (sub === "addp" || sub === "addpersistent") {
+		  // parse name & amount just like add/remove
+		  if (!bounties[key]) bounties[key] = { total: 0, posters: {}, persistent: true };
+		  bounties[key].total     += amount;
+		  bounties[key].persistent = true;                 // make sure flag is set
+		  bounties[key].posters[msg.author.id] =
+			(bounties[key].posters[msg.author.id] || 0) + amount;
+		  saveData();
+		  return sendEmbed(msg.channel,"📌 Persistent Bounty Added",
+			`**${name}** ➜ ${abbreviateGP(bounties[key].total)} (paid every kill)`);
+}
 
       // !bounty add/remove <name> <amount>
       if (["add", "remove"].includes(sub)) {
@@ -836,7 +850,7 @@ client.on(Events.MessageCreate, async msg => {
         }
 
         const key = ci(name);
-        if (!bounties[key]) bounties[key] = { total: 0, posters: {} };
+        if (!bounties[key]) bounties[key] = { total: 0, posters: {}, persistent: false };
 		if (sub === "add") {
 		  bounties[key].total            += amount;
 		  bounties[key].posters[msg.author.id] =
