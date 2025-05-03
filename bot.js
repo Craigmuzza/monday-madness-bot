@@ -829,6 +829,34 @@ client.on(Events.MessageCreate, async msg => {
 if (cmd === "!bounty") {
   const sub = (args.shift() || "").toLowerCase();   // first word after !bounty
 
+  /* ---------------------------------------------------------------
+     Optional "@someone" (or "<@123456789>") right at the end.
+     If present, we’ll credit that user for the bounty.
+  ---------------------------------------------------------------- */
+  let posterId = msg.author.id;          // default: command author
+  let maybeMention = args[args.length - 1];   // look at last token
+
+  if (maybeMention) {
+    // raw mention format: <@123…>  or  <@!123…>
+    const m = maybeMention.match(/^<@!?(?<id>\d+)>$/);
+    if (m?.groups?.id) {
+      posterId = m.groups.id;
+      args.pop();                       // remove it from the arg list
+    } else if (maybeMention.startsWith("@") && msg.guild) {
+      // a literal “@Name” — try to resolve in this guild
+      const nick = maybeMention.slice(1).toLowerCase();
+      const member = msg.guild.members.cache.find(
+        m =>
+          m.user.username.toLowerCase() === nick ||
+          (m.nickname && m.nickname.toLowerCase() === nick)
+      );
+      if (member) {
+        posterId = member.id;
+        args.pop();                     // remove the mention token
+      }
+    }
+  }
+
   // helper that shows the correct syntax
   const showUsage = () =>
     sendEmbed(
@@ -882,8 +910,8 @@ if (cmd === "!bounty") {
   }
 
   /* helper ------------------------------------------------------------ */
-  const amount = parseGPString(args.pop());
-  const name   = args.join(" ").trim();
+  const amount = parseGPString(args.pop());   // now the *new* last token
+  const name   = args.join(" ").trim();       // whatever remains
   if (["add","addp","remove","removep"].includes(sub)) {
     if (!name || isNaN(amount) || amount <= 0) return showUsage();
     if (!raglist.has(ci(name)))
@@ -911,8 +939,8 @@ if (cmd === "!bounty") {
   /* ---------- ADD (one‑shot) ---------------------------------------- */
   if (sub === "add") {
     bounties[key].once.total += amount;
-    bounties[key].once.posters[msg.author.id] =
-      (bounties[key].once.posters[msg.author.id] || 0) + amount;
+	  bounties[key].once.posters[posterId] =
+		(bounties[key].once.posters[posterId] || 0) + amount;
 
     saveData();
     return sendEmbed(
@@ -925,9 +953,8 @@ if (cmd === "!bounty") {
   /* ---------- ADDP (persistent) ------------------------------------- */
   if (sub === "addp" || sub === "addpersistent") {
     bounties[key].persistent.total += amount;
-    bounties[key].persistent.posters[msg.author.id] =
-      (bounties[key].persistent.posters[msg.author.id] || 0) + amount;
-
+	  bounties[key].persistent.posters[posterId] =
+		(bounties[key].persistent.posters[posterId] || 0) + amount;
     saveData();
     return sendEmbed(
       msg.channel,
@@ -1004,8 +1031,8 @@ if (cmd === "!bounty") {
 		  { name: "Raglist", value:"`!raglist` - View raglist\n`!raglist add <name>` - Add player to raglist\n`!raglist remove <name>` - Remove player from raglist", inline:false },
 		  { name: "Bounty", value:
 			  "`!bounty list`\n" +
-			  "`!bounty add <name> <amount>`      – one‑shot\n" +
-			  "`!bounty addp <name> <amount>`     – persistent\n" +
+			  "`!bounty add  <name> <amount> [@user]`   – one‑shot\n" +
+			  "`!bounty addp <name> <amount> [@user]`  – persistent\n" +
 			  "`!bounty remove <name> <amount>`   – reduce one‑shot\n" +
 			  "`!bounty removep <name> <amount>`  – reduce persistent",
 			  inline: false },
