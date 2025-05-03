@@ -57,6 +57,9 @@ const REPO               = "craigmuzza/monday-madness-bot";
 const BRANCH             = "main";
 const COMMIT_MSG         = "auto: sync data";
 
+// ── Keeping it in the clan ────────────────────────────────────
+const CLAN_FILTER = "a rat pact";        // lower‑case, for easy compare
+
 // ── Constants & Regex ─────────────────────────────────────────
 const DEDUP_MS         = 10_000;
 const COMMAND_COOLDOWN = 3_000;
@@ -442,6 +445,7 @@ app.post("/logKill", async (req, res) => {
   );
 });
 
+/* ───────────────────────────  RuneLite “dink” webhook  ────────────────────────── */
 app.post(
   "/dink",
   upload.fields([
@@ -462,15 +466,34 @@ app.post(
     if (typeof msg === "string")
       console.log(`[dink] seen by=${rsn}|msg=${msg}`);
 
+    /* -----------------------------------------------------------------
+       Only process clan‑chat coming from the clan “A Rat Pact”
+    ------------------------------------------------------------------ */
     if (
       data.type === "CHAT" &&
-      ["CLAN_CHAT","CLAN_MESSAGE"].includes(data.extra?.type) &&
+      ["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) &&
       typeof msg === "string"
     ) {
-      const m = msg.match(LOOT_RE);
-      if (m) return processLoot(m[1], m[2], Number(m[3].replace(/,/g, "")), msg.trim(), res);
+      const clanName =
+        (data.extra?.clanName || data.extra?.clan_name || "").toLowerCase();
+
+      if (clanName !== CLAN_FILTER) {                       // not our clan – ignore
+        console.log(`[dink] skipped clan: "${clanName}"`);
+      } else {
+        const m = msg.match(LOOT_RE);
+        if (m) {
+          return processLoot(
+            m[1],                                       // killer
+            m[2],                                       // victim
+            Number(m[3].replace(/,/g, "")),             // gp
+            msg.trim(),                                 // dedup key
+            res
+          );
+        }
+      }
     }
 
+    /* nothing to do */
     return res.status(204).end();
   }
 );
