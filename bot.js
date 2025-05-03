@@ -310,10 +310,20 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
     gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]||0) + gp;
     kills     [ci(killer)] = (kills     [ci(killer)]||0) + 1;
-    lootLog.push({ killer, gp, timestamp: now(), isClan });
+	  lootLog.push({
+		killer, gp,
+		timestamp: now(),
+		isClan,
+		event: currentEvent          // ← NEW
+	  });
 
     deathCounts[ci(victim)] = (deathCounts[ci(victim)]||0) + 1;
-    killLog.push({ killer, victim, timestamp: now(), isClan });
+	  killLog.push({
+		killer, victim,
+		timestamp: now(),
+		isClan,
+		event: currentEvent          // ← NEW
+	  });
 
     const totalForDisplay = isClan
       ? lootTotals[ci(killer)]
@@ -583,7 +593,10 @@ client.on(Events.MessageCreate, async msg => {
       }
       const nameFilter = args.join(" ").toLowerCase() || null;
 
-      const all = filterByPeriod(killLog, period);
+	  const all = filterByPeriod(
+		killLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
+		period
+	);
       const normal = all.filter(e => !e.isClan);
       const clan   = all.filter(e => e.isClan);
 
@@ -658,7 +671,11 @@ client.on(Events.MessageCreate, async msg => {
       }
       const nameFilter = args.join(" ").toLowerCase() || null;
 
-      const all    = filterByPeriod(lootLog, period);
+	const all    = filterByPeriod(
+	  lootLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
+	  period
+	);
+	  
       const normal = all.filter(e => !e.isClan);
       const clan   = all.filter(e => e.isClan);
 
