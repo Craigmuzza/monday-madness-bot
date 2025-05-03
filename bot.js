@@ -61,6 +61,7 @@ const COMMIT_MSG         = "auto: sync data";
 const CLAN_FILTER = "a rat pact";        // lower‑case, for easy compare
 
 // ── Constants & Regex ─────────────────────────────────────────
+const EMBED_ICON = "https://i.imgur.com/jFZozPJ.gif";
 const DEDUP_MS         = 10_000;
 const COMMAND_COOLDOWN = 3_000;
 const BACKUP_INTERVAL  = 5 * 60 * 1000;
@@ -134,6 +135,7 @@ function sendEmbed(channel, title, desc, color = 0xFF0000) {
     .setTitle(title)
     .setDescription(desc)
     .setColor(color)
+	.setThumbnail(EMBED_ICON)
     .setTimestamp();
   return channel.send({ embeds: [embed] });
 }
@@ -342,6 +344,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
         inline: true
       })
       .setColor(isClan ? 0x00CC88 : 0xFF0000)
+	  .setThumbnail(EMBED_ICON)
       .setTimestamp();
 
     if (isClan) embed.setFooter({ text: "🔥 Clan-vs-Clan action!" });
@@ -380,6 +383,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
           `Total bounty paid out: **${bounty.total.toLocaleString()} coins (${abbreviateGP(bounty.total)})**`
         )
         .setColor(0xFFAA00)
+		.setThumbnail(EMBED_ICON)
         .setTimestamp();
 
       await ch.send({ content: mentions, embeds: [claimEmbed] });
@@ -528,7 +532,6 @@ setInterval(() => {
   }
 }, BACKUP_INTERVAL);
 
-
 const port = process.env.PORT;
 if (!port) {
   console.error("❌ PORT env var is required by Render");
@@ -621,6 +624,7 @@ client.on(Events.MessageCreate, async msg => {
       const e1 = new EmbedBuilder()
         .setTitle(`🏆 Hiscores (${period})`)
         .setColor(0xFF0000)
+		.setThumbnail(EMBED_ICON)
         .setTimestamp();
       if (!normalBoard.length) {
         e1.setDescription("No kills in that period.");
@@ -638,6 +642,7 @@ client.on(Events.MessageCreate, async msg => {
         const e2 = new EmbedBuilder()
           .setTitle(`✨ Clan Hiscores (${period}) — Event: ${currentEvent}`)
           .setColor(0x00CC88)
+		  .setThumbnail(EMBED_ICON)
           .setTimestamp();
         if (!clanBoard.length) {
           e2.setDescription("No clan-vs-clan kills in that period.");
@@ -700,6 +705,7 @@ client.on(Events.MessageCreate, async msg => {
       const e1 = new EmbedBuilder()
         .setTitle(`💰 Lootboard (${period})`)
         .setColor(0xFF0000)
+		.setThumbnail(EMBED_ICON)
         .setTimestamp();
       if (!normalBoard.length) {
         e1.setDescription("No loot in that period.");
@@ -720,6 +726,7 @@ client.on(Events.MessageCreate, async msg => {
         const e2 = new EmbedBuilder()
           .setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
           .setColor(0x00CC88)
+		  .setThumbnail(EMBED_ICON)
           .setTimestamp();
         if (!clanBoard.length) {
           e2.setDescription("No clan-vs-clan loot in that period.");
@@ -934,6 +941,7 @@ if (cmd === "!bounty") {
       const e = new EmbedBuilder()
         .setTitle(title)
         .setColor(0xFFAA00)
+		.setThumbnail(EMBED_ICON)
         .setTimestamp();
       rows
         .sort((a, b) => b[1].total - a[1].total)
@@ -1071,7 +1079,8 @@ if (cmd === "!bounty") {
 	if (lc === "!help") {
 	  const help = new EmbedBuilder()
 		.setTitle("🛠 Robo-Rat Help")
-		.setColor(0xFF0000)  // Set the embed colour to yellow
+		.setColor(0xFF0000)
+		.setThumbnail(EMBED_ICON)
 		.setTimestamp()
 		.addFields([
 		  { name: "Stats", value: "`!hiscores [daily|weekly|monthly|all] [name]`\n`!lootboard [period] [name]`\n`!totalgp`", inline:false },
