@@ -521,6 +521,14 @@ if (
     return res.status(204).end();
   }
 
+	// AUTO-REGISTER: add this player to `registered` if they're not already in it
+	const key = ci(rsn);
+	if (!registered.has(key)) {
+	  registered.add(key);
+	  saveData();                                 // write out registered.json
+	  console.log(`[auto-register] added "${key}"`);
+	}
+
   /* our clan — parse the loot message */
   const m = msg.match(LOOT_RE);
   if (m) {
