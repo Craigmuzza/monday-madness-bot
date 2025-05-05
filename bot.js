@@ -369,9 +369,6 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
         .setThumbnail(EMBED_ICON)
         .setColor(0xFF0000)
         .setTimestamp();
-
-      // put the @here in the content so it actually pings
-      await ch.send({ content: "@here", embeds: [ragEmbed] });
     }
 
 // ── Bounty claimed ────────────────────────────────────────
