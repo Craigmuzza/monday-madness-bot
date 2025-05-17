@@ -691,6 +691,50 @@ client.on(Events.MessageCreate, async msg => {
       );
     }
 
+	// ── !addgp / !removegp ───────────────────────────────────────
+	if (cmd === "!addgp" || cmd === "!removegp") {
+		
+	  msg.delete().catch(() => {/* missing perms, oh well */});	
+	
+	  const isAdd = cmd === "!addgp";
+	  // pull off the amount and parse it
+	  const amount = parseGPString(args.pop());
+	  // the rest is the player name (allowing spaces)
+	  const name   = args.join(" ").trim();
+
+	  if (!name || isNaN(amount) || amount <= 0) {
+		return sendEmbed(
+		  msg.channel,
+		  "⚠️ Usage",
+		  "`!addgp <name> <amount>`\n`!removegp <name> <amount>`"
+		);
+	  }
+
+	  // record a synthetic lootLog entry (negative for remove)
+	  lootLog.push({
+		killer:    name,
+		gp:        isAdd ? amount : -amount,
+		timestamp: now(),
+		isClan:    false,              // these are manual adjustments
+		event:     currentEvent
+	  });
+	  saveData();
+
+	  // recompute the new total for that name in this event
+	  const total = lootLog
+		.filter(e =>
+		  e.killer.toLowerCase() === name.toLowerCase() &&
+		  (currentEvent === "default" ? true : e.event === currentEvent)
+		)
+		.reduce((sum, e) => sum + e.gp, 0);
+
+	  return sendEmbed(
+		msg.channel,
+		isAdd ? "➕ GP Added" : "➖ GP Removed",
+		`**${name}** ➜ ${total.toLocaleString()} coins (${abbreviateGP(total)})`
+	  );
+	}
+
     // ── !lootboard ────────────────────────────────────────────────
     if (cmd === "!lootboard") {
       let period = "all";
