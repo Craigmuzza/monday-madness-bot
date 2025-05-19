@@ -801,126 +801,109 @@ if (cmd === "!addacc" || cmd === "!removeacc" || cmd === "!listacc") {
 	}
 
 
-    // ── !lootboard ────────────────────────────────────────────────
-    if (cmd === "!lootboard") {
-       // --- detect a user filter ("me" or @mention) instead of a raw RSN
-	  let userIdFilter = null;
-	  if (args[0]?.toLowerCase() === "me") {
-		userIdFilter = msg.author.id;
-		args.shift();
-	  } else {
-		const mention = args[0]?.match(/^<@!?(\d+)>$/);
-		if (mention) {
-		  userIdFilter = mention[1];
-		  args.shift();
-		}
-	  }
-	  
-	  let period = "all";
-      if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
-        period = args.shift().toLowerCase();
-      }
-      const nameFilter = args.join(" ").toLowerCase() || null;
+// ── !lootboard ────────────────────────────────────────────────
+if (cmd === "!lootboard") {
+  // 1) period & nameFilter as before
+  let period = "all";
+  if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
+    period = args.shift().toLowerCase();
+  }
+  const nameFilter = args.join(" ").toLowerCase() || null;
 
-	let filtered = lootLog.filter(e =>
-	  (currentEvent === "default" || e.event === currentEvent)
-	);
-	// if the user asked for "me" or @them, only include THEIR linked RSNs:
-	if (userIdFilter) {
-	  const rsns = accounts[userIdFilter] || [];
-	  filtered = filtered.filter(e => rsns.includes(e.killer.toLowerCase()));
-	}
-	const all = filterByPeriod(filtered, period);
-	  
-      const normal = all.filter(e => !e.isClan);
-      const clan   = all.filter(e => e.isClan);
+  // 2) invert your accounts map so rsn→discordId
+  const rsnToDiscord = {};
+  for (const [uid, rsns] of Object.entries(accounts)) {
+    for (const rsn of rsns) {
+      rsnToDiscord[rsn.toLowerCase()] = uid;
+    }
+  }
 
-      // build top-10
-      const makeLootBoard = arr => {
-        const sums = {};
-        arr.forEach(({ killer, gp }) => {
-          const k = killer.toLowerCase();
-          if (nameFilter && k !== nameFilter) return;
-          sums[k] = (sums[k]||0) + gp;
-        });
-        return Object.entries(sums)
-          .sort((a,b) => b[1] - a[1])
-          .slice(0,10)
-          .map(([n,v],i) => ({ rank:i+1, name:n, gp:v }));
+  // 3) gather & filter your raw lootLog
+  const raw = lootLog.filter(e =>
+    (currentEvent === "default" ? true : e.event === currentEvent) &&
+    (!nameFilter || e.killer.toLowerCase() === nameFilter)
+  );
+  const all = filterByPeriod(raw, period);
+
+  // 4) sum GP by “owner” = discordId if linked, else by RSN
+  const sums = {};
+  all.forEach(({ killer, gp }) => {
+    const key = killer.toLowerCase();
+    const owner = rsnToDiscord[key] || key;
+    sums[owner] = (sums[owner] || 0) + gp;
+  });
+
+  // 5) turn into a sorted top-10 array
+  const board = Object.entries(sums)
+    .sort((a,b) => b[1] - a[1])
+    .slice(0,10)
+    .map(([owner,gp],i) => {
+      const isUser = /^\d+$/.test(owner);
+      return {
+        rank: i+1,
+        owner,
+        display: isUser ? `<@${owner}>` : owner,
+        gp
       };
+    });
 
-      const normalBoard = makeLootBoard(normal);
-      const clanBoard   = makeLootBoard(clan);
+  // 6) Build the normal lootboard embed
+  const e1 = new EmbedBuilder()
+    .setTitle(`💰 Lootboard (${period})`)
+    .setColor(0xFF0000)
+    .setThumbnail(EMBED_ICON)
+    .setTimestamp();
+  if (!board.length) {
+    e1.setDescription("No loot in that period.");
+  } else {
+    board.forEach(r =>
+      e1.addFields({
+        name:  `${r.rank}. ${r.display}`,
+        value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
+        inline: false
+      })
+    );
+  }
 
-      // normal lootboard embed
-	const titleBase = userIdFilter
-	  ? `💰 ${userIdFilter === msg.author.id ? "My" : "Their"} Loot`
-	  : "💰 Lootboard";
-	const e1 = new EmbedBuilder()
-	    .setTitle(`${titleBase} (${period})`)
-        .setColor(0xFF0000)
-		.setThumbnail(EMBED_ICON)
-        .setTimestamp();
-      if (!normalBoard.length) {
-        e1.setDescription("No loot in that period.");
-      } else {
-	// build RSN→Discord map once
-	const rsnToDiscord = {};
-	for (const [uid, rsns] of Object.entries(accounts)) {
-	  rsns.forEach(r => { rsnToDiscord[r.toLowerCase()] = uid });
-	}
+  const embeds = [e1];
 
-	normalBoard.forEach(r => {
-	  const discordId = rsnToDiscord[r.name];
-	  const display = discordId
-		? `<@${discordId}> (${r.name})`
-		: r.name;
-	  e1.addFields({
-		name:  `${r.rank}. ${display}`,
-		value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
-		inline: false
-	  });
-	});
+  // 7) And your clan-only board (if in an event)
+  if (currentEvent !== "default") {
+    const clanOnly = board.filter(r => {
+      // find at least one entry where isClan was true
+      return all.some(e =>
+        (rsnToDiscord[e.killer.toLowerCase()] || e.killer.toLowerCase()) === r.owner &&
+        e.isClan
+      );
+    });
+    const e2 = new EmbedBuilder()
+      .setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
+      .setColor(0x00CC88)
+      .setThumbnail(EMBED_ICON)
+      .setTimestamp();
 
-      }
+    if (!clanOnly.length) {
+      e2.setDescription("No clan-vs-clan loot in that period.");
+    } else {
+      clanOnly.forEach(r =>
+        e2.addFields({
+          name:  `${r.rank}. ${r.display}`,
+          value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
+          inline: false
+        })
+      );
+    }
+    embeds.push(e2);
+  }
 
-      const embeds = [e1];
-
-	// only show clan lootboard when in an event
-	if (currentEvent !== "default") {
-	  // build a reverse lookup RSN → Discord ID
-	  const rsnToDiscord = {};
-	  for (const [uid, rsns] of Object.entries(accounts)) {
-		rsns.forEach(r => {
-		  rsnToDiscord[r.toLowerCase()] = uid;
-		});
-	  }
-
-	  const e2 = new EmbedBuilder()
-		.setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
-		.setColor(0x00CC88)
-		.setThumbnail(EMBED_ICON)
-		.setTimestamp();
-
-	  if (!clanBoard.length) {
-		e2.setDescription("No clan-vs-clan loot in that period.");
-	  } else {
-		clanBoard.forEach(r => {
-		  const discordId = rsnToDiscord[r.name];
-		  // if they’ve registered any RSN matching this row, show a mention
-		  const display = discordId
-			? `<@${discordId}> (${r.name})`
-			: r.name;
-		  e2.addFields({
-			name:  `${r.rank}. ${display}`,
-			value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
-			inline: false
-		  });
-		});
-	  }
-
-	  embeds.push(e2);
-	}
+  // 8) send with allowedMentions so <@id> actually pings
+  const toMention = board
+    .filter(r => /^\d+$/.test(r.owner))
+    .map(r => r.owner);
+  return msg.channel.send({
+    embeds,
+    allowedMentions: { users: toMention }
+  });
 
       return msg.channel.send({ embeds });
     }
