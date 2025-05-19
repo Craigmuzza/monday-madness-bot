@@ -863,20 +863,56 @@ if (cmd === "!lootboard") {
      } 
    }));   
 
-  // 6) Build the normal lootboard embed
-  const e1 = new EmbedBuilder()
-    .setTitle(`💰 Lootboard (${period})`)
-    .setColor(0xFF0000)
+// 6) Build the normal lootboard embed
+const e1 = new EmbedBuilder()
+  .setTitle(`💰 Lootboard (${period})`)
+  .setColor(0xFF0000)
+  .setThumbnail(EMBED_ICON)
+  .setTimestamp();
+
+if (!board.length) {
+  e1.setDescription("No loot in that period.");
+} else {
+  board.forEach(r => {
+    let display;
+    if (/^\d+$/.test(r.owner) && discordMembers[r.owner]) {
+      // this is a Discord‐linked row: show their nickname and all their RSNs
+      const accs = accounts[r.owner] || [];
+      display = `${discordMembers[r.owner].displayName} (${accs.join(", ")})`;
+    } else {
+      // just a raw RSN
+      display = r.owner;
+    }
+    e1.addFields({
+      name:  `${r.rank}. ${display}`,
+      value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
+      inline: false
+    });
+  });
+}
+
+const embeds = [e1];
+
+// 7) And your clan‐only board (if in an event)
+if (currentEvent !== "default") {
+  const e2 = new EmbedBuilder()
+    .setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
+    .setColor(0x00CC88)
     .setThumbnail(EMBED_ICON)
     .setTimestamp();
-  if (!board.length) {
-    e1.setDescription("No loot in that period.");
+
+  if (!clanOnly.length) {
+    e2.setDescription("No clan-vs-clan loot in that period.");
   } else {
-      board.forEach(r => {
-      const display = discordMembers[r.owner]
-        ? `${discordMembers[r.owner].displayName} (${r.rsn})`
-        : r.rsn;
-      e1.addFields({
+    clanOnly.forEach(r => {
+      let display;
+      if (/^\d+$/.test(r.owner) && discordMembers[r.owner]) {
+        const accs = accounts[r.owner] || [];
+        display = `${discordMembers[r.owner].displayName} (${accs.join(", ")})`;
+      } else {
+        display = r.owner;
+      }
+      e2.addFields({
         name:  `${r.rank}. ${display}`,
         value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
         inline: false
@@ -884,39 +920,8 @@ if (cmd === "!lootboard") {
     });
   }
 
-  const embeds = [e1];
-
-  // 7) And your clan-only board (if in an event)
-  if (currentEvent !== "default") {
-    const clanOnly = board.filter(r => {
-      // find at least one entry where isClan was true
-      return all.some(e =>
-        (rsnToDiscord[e.killer.toLowerCase()] || e.killer.toLowerCase()) === r.owner &&
-        e.isClan
-      );
-    });
-    const e2 = new EmbedBuilder()
-      .setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
-      .setColor(0x00CC88)
-      .setThumbnail(EMBED_ICON)
-      .setTimestamp();
-
-    if (!clanOnly.length) {
-      e2.setDescription("No clan-vs-clan loot in that period.");
-    } else {
-         clanOnly.forEach(r => {
-        const display = discordMembers[r.owner]
-          ? `${discordMembers[r.owner].displayName} (${r.rsn})`
-          : r.rsn;
-        e2.addFields({
-          name:  `${r.rank}. ${display}`,
-          value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
-          inline: false
-        });
-      });
-    }
-    embeds.push(e2);
-  }
+  embeds.push(e2);
+}
 
   // 8) send with allowedMentions so <@id> actually pings
   const toMention = board
