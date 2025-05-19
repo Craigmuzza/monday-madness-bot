@@ -846,6 +846,22 @@ if (cmd === "!lootboard") {
         gp
       };
     });
+	
+   // 5b) fetch all Discord users involved as GuildMembers
+   const discordIds = [...new Set(
+     board.filter(r => /^\d+$/.test(r.owner))
+          .map(r => r.owner)
+   )];
+   const discordMembers = {};
+   await Promise.all(discordIds.map(async id => {
+     try {
+       // fetch from the guild so we can access displayName
+       const member = await msg.guild.members.fetch(id);
+       discordMembers[id] = member;
+     } catch {
+       /* ignore missing or left members */
+     } 
+   }));   
 
   // 6) Build the normal lootboard embed
   const e1 = new EmbedBuilder()
@@ -856,13 +872,16 @@ if (cmd === "!lootboard") {
   if (!board.length) {
     e1.setDescription("No loot in that period.");
   } else {
-    board.forEach(r =>
+      board.forEach(r => {
+      const display = discordMembers[r.owner]
+        ? `${discordMembers[r.owner].displayName} (${r.rsn})`
+        : r.rsn;
       e1.addFields({
-        name:  `${r.rank}. ${r.display}`,
+        name:  `${r.rank}. ${display}`,
         value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
         inline: false
-      })
-    );
+      });
+    });
   }
 
   const embeds = [e1];
@@ -885,13 +904,16 @@ if (cmd === "!lootboard") {
     if (!clanOnly.length) {
       e2.setDescription("No clan-vs-clan loot in that period.");
     } else {
-      clanOnly.forEach(r =>
+         clanOnly.forEach(r => {
+        const display = discordMembers[r.owner]
+          ? `${discordMembers[r.owner].displayName} (${r.rsn})`
+          : r.rsn;
         e2.addFields({
-          name:  `${r.rank}. ${r.display}`,
+          name:  `${r.rank}. ${display}`,
           value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
           inline: false
-        })
-      );
+        });
+      });
     }
     embeds.push(e2);
   }
