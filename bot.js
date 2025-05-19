@@ -82,6 +82,9 @@ const client = new Client({
   ]
 });
 
+// ── Per-Discord-user RuneScape account links  ─────────────────────────────
+const accounts = {};   // { [userId: string]: string[] }
+
 // ── Bot state & storage ───────────────────────────────────────
 let currentEvent = "default";
 let clanOnlyMode = false;
@@ -171,6 +174,11 @@ function saveData() {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
     fs.writeFileSync(
+      path.join(DATA_DIR, "accounts.json"),
+      JSON.stringify(accounts, null, 2)
+    );
+
+    fs.writeFileSync(
       path.join(DATA_DIR, "state.json"),
       JSON.stringify(
        { currentEvent, clanOnlyMode, events, killLog, lootLog, bounties },
@@ -212,6 +220,14 @@ function loadData() {
         .forEach(n => registered.add(ci(n)));
       console.log(`[init] loaded ${registered.size} registered names`);
     }
+	
+	// accounts.json (optional, user→[rsns])
+    const acctPath = path.join(DATA_DIR, "accounts.json");
+    if (fs.existsSync(acctPath)) {
+      Object.assign(accounts, JSON.parse(fs.readFileSync(acctPath)));
+      console.log(`[init] loaded account links for ${Object.keys(accounts).length} users`);
+    }
+
 
     const ragPath = path.join(DATA_DIR, "raglist.json");
     if (fs.existsSync(ragPath)) {
@@ -735,18 +751,69 @@ client.on(Events.MessageCreate, async msg => {
 	  );
 	}
 
+		// ── !addacct / !delacct / !listacct ───────────────────────────────
+	if (cmd === "!addacct" || cmd === "!delacct" || cmd === "!listacct") {
+	  const myId = msg.author.id;
+	  // LIST
+	  if (cmd === "!listacct") {
+		const list = accounts[myId] || [];
+		const desc = list.length
+		  ? list.map((r,i)=>`${i+1}. ${r}`).join("\n")
+		  : "You have no linked accounts.";
+		return sendEmbed(msg.channel, "🔗 Your RSN Links", desc);
+	  }
+
+	  // ADD / DEL
+	  const rsn = args.join(" ").trim();
+	  if (!rsn) {
+		return sendEmbed(msg.channel, "⚠️ Usage", "`!addacct <rsn>` or `!delacct <rsn>`");
+	  }
+	  accounts[myId] = accounts[myId] || [];
+	  if (cmd === "!addacct") {
+		if (!accounts[myId].includes(rsn.toLowerCase())) {
+		  accounts[myId].push(rsn.toLowerCase());
+		}
+	  } else {
+		accounts[myId] = accounts[myId].filter(x => x !== rsn.toLowerCase());
+	  }
+	  saveData();
+	  return sendEmbed(
+		msg.channel,
+		cmd === "!addacct" ? "➕ Account Added" : "➖ Account Removed",
+		`You now have ${accounts[myId].length} linked account(s).`
+	  );
+	}
+
     // ── !lootboard ────────────────────────────────────────────────
     if (cmd === "!lootboard") {
-      let period = "all";
+       // --- detect a user filter ("me" or @mention) instead of a raw RSN
+	  let userIdFilter = null;
+	  if (args[0]?.toLowerCase() === "me") {
+		userIdFilter = msg.author.id;
+		args.shift();
+	  } else {
+		const mention = args[0]?.match(/^<@!?(\d+)>$/);
+		if (mention) {
+		  userIdFilter = mention[1];
+		  args.shift();
+		}
+	  }
+	  
+	  let period = "all";
       if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
         period = args.shift().toLowerCase();
       }
       const nameFilter = args.join(" ").toLowerCase() || null;
 
-	const all    = filterByPeriod(
-	  lootLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
-	  period
+	let filtered = lootLog.filter(e =>
+	  (currentEvent === "default" || e.event === currentEvent)
 	);
+	// if the user asked for "me" or @them, only include THEIR linked RSNs:
+	if (userIdFilter) {
+	  const rsns = accounts[userIdFilter] || [];
+	  filtered = filtered.filter(e => rsns.includes(e.killer.toLowerCase()));
+	}
+	const all = filterByPeriod(filtered, period);
 	  
       const normal = all.filter(e => !e.isClan);
       const clan   = all.filter(e => e.isClan);
@@ -769,45 +836,74 @@ client.on(Events.MessageCreate, async msg => {
       const clanBoard   = makeLootBoard(clan);
 
       // normal lootboard embed
-      const e1 = new EmbedBuilder()
-        .setTitle(`💰 Lootboard (${period})`)
+	const titleBase = userIdFilter
+	  ? `💰 ${userIdFilter === msg.author.id ? "My" : "Their"} Loot`
+	  : "💰 Lootboard";
+	const e1 = new EmbedBuilder()
+	    .setTitle(`${titleBase} (${period})`)
         .setColor(0xFF0000)
 		.setThumbnail(EMBED_ICON)
         .setTimestamp();
       if (!normalBoard.length) {
         e1.setDescription("No loot in that period.");
       } else {
-        normalBoard.forEach(r =>
-          e1.addFields({
-            name:  `${r.rank}. ${r.name}`,
-            value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
-            inline: false
-          })
-        );
+	// build RSN→Discord map once
+	const rsnToDiscord = {};
+	for (const [uid, rsns] of Object.entries(accounts)) {
+	  rsns.forEach(r => { rsnToDiscord[r.toLowerCase()] = uid });
+	}
+
+	normalBoard.forEach(r => {
+	  const discordId = rsnToDiscord[r.name];
+	  const display = discordId
+		? `<@${discordId}> (${r.name})`
+		: r.name;
+	  e1.addFields({
+		name:  `${r.rank}. ${display}`,
+		value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
+		inline: false
+	  });
+	});
+
       }
 
       const embeds = [e1];
 
-      // only show clan lootboard when in an event
-      if (currentEvent !== "default") {
-        const e2 = new EmbedBuilder()
-          .setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
-          .setColor(0x00CC88)
-		  .setThumbnail(EMBED_ICON)
-          .setTimestamp();
-        if (!clanBoard.length) {
-          e2.setDescription("No clan-vs-clan loot in that period.");
-        } else {
-          clanBoard.forEach(r =>
-            e2.addFields({
-              name:  `${r.rank}. ${r.name}`,
-              value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
-              inline: false
-            })
-          );
-        }
-        embeds.push(e2);
-      }
+	// only show clan lootboard when in an event
+	if (currentEvent !== "default") {
+	  // build a reverse lookup RSN → Discord ID
+	  const rsnToDiscord = {};
+	  for (const [uid, rsns] of Object.entries(accounts)) {
+		rsns.forEach(r => {
+		  rsnToDiscord[r.toLowerCase()] = uid;
+		});
+	  }
+
+	  const e2 = new EmbedBuilder()
+		.setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
+		.setColor(0x00CC88)
+		.setThumbnail(EMBED_ICON)
+		.setTimestamp();
+
+	  if (!clanBoard.length) {
+		e2.setDescription("No clan-vs-clan loot in that period.");
+	  } else {
+		clanBoard.forEach(r => {
+		  const discordId = rsnToDiscord[r.name];
+		  // if they’ve registered any RSN matching this row, show a mention
+		  const display = discordId
+			? `<@${discordId}> (${r.name})`
+			: r.name;
+		  e2.addFields({
+			name:  `${r.rank}. ${display}`,
+			value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
+			inline: false
+		  });
+		});
+	  }
+
+	  embeds.push(e2);
+	}
 
       return msg.channel.send({ embeds });
     }
