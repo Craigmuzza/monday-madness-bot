@@ -751,52 +751,76 @@ client.on(Events.MessageCreate, async msg => {
 	  );
 	}
 
-// ── !addacc / !removeacc / !listacc ───────────────────────────────
-if (cmd === "!addacc" || cmd === "!removeacc" || cmd === "!listacc") {
-  const myId = msg.author.id;
+	// ── !addacc / !removeacc / !listacc ───────────────────────────────
+	if (cmd === "!addacc" || cmd === "!removeacc" || cmd === "!listacc") {
+	  // 1) see if the first or last arg is a mention, and use that as targetId
+	  let targetId = msg.author.id;
 
-  // ── LIST
-  if (cmd === "!listacc") {
-    const list = accounts[myId] || [];
-    const desc = list.length
-      ? list.map((r,i) => `${i+1}. ${r}`).join("\n")
-      : "You have no linked accounts.";
-    return sendEmbed(msg.channel, "🔗 Your RSN Links", desc);
-  }
-
-	  // ── ADD / REMOVE
-	  // grab everything after the command, split on commas, trim each
-	  const raw = text.slice(cmd.length).trim();            // e.g. " alice, bob rsn ,charlie"
-	  const names = raw
-		.split(",")
-		.map(s => s.trim())
-		.filter(Boolean);                                   // e.g. ["alice","bob rsn","charlie"]
-
-	  if (!names.length) {
-		return sendEmbed(msg.channel, "⚠️ Usage", "`!addacc <rsn1>, <rsn2>, ...` or `!removeacc <rsn1>, <rsn2>, ...`");
+	  // check first token
+	  if (args[0]?.match(/^<@!?\d+>$/)) {
+		const id = args.shift().replace(/\D/g, "");
+		if (msg.guild.members.cache.has(id)) targetId = id;
+	  }
+	  // or check last token
+	  else if (args[args.length - 1]?.match(/^<@!?\d+>$/)) {
+		const id = args.pop().replace(/\D/g, "");
+		if (msg.guild.members.cache.has(id)) targetId = id;
 	  }
 
-	  accounts[myId] = accounts[myId] || [];
+	  // 2) LIST
+	  if (cmd === "!listacc") {
+		const list  = accounts[targetId] || [];
+		const member = msg.guild.members.cache.get(targetId);
+		const title = targetId === msg.author.id
+		  ? "🔗 Your RSN Links"
+		  : `🔗 ${member.displayName}'s RSN Links`;
+		const desc  = list.length
+		  ? list.map((r,i) => `${i+1}. ${r}`).join("\n")
+		  : "No linked accounts.";
+		return sendEmbed(msg.channel, title, desc);
+	  }
+
+	  // 3) ADD / REMOVE: parse the rest as comma-separated RSNs
+	  const raw  = args.join(" ").trim();
+	  if (!raw) {
+		return sendEmbed(
+		  msg.channel,
+		  "⚠️ Usage",
+		  "`!addacc [@user] <rsn1, rsn2, …>`\n`!removeacc [@user] <rsn1, rsn2, …>`"
+		);
+	  }
+	  const rsns = raw
+		.split(",")
+		.map(s => s.trim().toLowerCase())
+		.filter(Boolean);
+	  if (!rsns.length) {
+		return sendEmbed(msg.channel, "⚠️ Error", "No valid RSNs provided.");
+	  }
+
+	  // ensure their array exists
+	  accounts[targetId] = accounts[targetId] || [];
 
 	  if (cmd === "!addacc") {
-		for (const rsn of names) {
-		  const key = rsn.toLowerCase();
-		  if (!accounts[myId].includes(key)) {
-			accounts[myId].push(key);
+		for (const rsn of rsns) {
+		  if (!accounts[targetId].includes(rsn)) {
+			accounts[targetId].push(rsn);
 		  }
 		}
-	  } else {
-		// remove any matching
-		const toRemove = names.map(n => n.toLowerCase());
-		accounts[myId] = accounts[myId].filter(x => !toRemove.includes(x));
+	  } else { // "!removeacc"
+		accounts[targetId] = accounts[targetId].filter(x => !rsns.includes(x));
 	  }
 
 	  saveData();
 
+	  // 4) confirm
+	  const who = targetId === msg.author.id
+		? "You"
+		: msg.guild.members.cache.get(targetId).displayName;
+	  const verb = cmd === "!addacc" ? "➕ Account Added" : "➖ Account Removed";
 	  return sendEmbed(
 		msg.channel,
-		cmd === "!addacc" ? "➕ Account(s) Added" : "➖ Account(s) Removed",
-		`You now have ${accounts[myId].length} linked account(s).`
+		verb,
+		`${who} now have ${accounts[targetId].length} linked account(s).`
 	  );
 	}
 
