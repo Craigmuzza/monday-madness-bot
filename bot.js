@@ -751,38 +751,55 @@ client.on(Events.MessageCreate, async msg => {
 	  );
 	}
 
-		// ── !addacc / !removeacc / !listacc ───────────────────────────────
-	if (cmd === "!addacc" || cmd === "!removeacc" || cmd === "!listacc") {
-	  const myId = msg.author.id;
-	  // LIST
-	  if (cmd === "!listacc") {
-		const list = accounts[myId] || [];
-		const desc = list.length
-		  ? list.map((r,i)=>`${i+1}. ${r}`).join("\n")
-		  : "You have no linked accounts.";
-		return sendEmbed(msg.channel, "🔗 Your RSN Links", desc);
+// ── !addacc / !removeacc / !listacc ───────────────────────────────
+if (cmd === "!addacc" || cmd === "!removeacc" || cmd === "!listacc") {
+  const myId = msg.author.id;
+
+  // ── LIST
+  if (cmd === "!listacc") {
+    const list = accounts[myId] || [];
+    const desc = list.length
+      ? list.map((r,i) => `${i+1}. ${r}`).join("\n")
+      : "You have no linked accounts.";
+    return sendEmbed(msg.channel, "🔗 Your RSN Links", desc);
+  }
+
+	  // ── ADD / REMOVE
+	  // grab everything after the command, split on commas, trim each
+	  const raw = text.slice(cmd.length).trim();            // e.g. " alice, bob rsn ,charlie"
+	  const names = raw
+		.split(",")
+		.map(s => s.trim())
+		.filter(Boolean);                                   // e.g. ["alice","bob rsn","charlie"]
+
+	  if (!names.length) {
+		return sendEmbed(msg.channel, "⚠️ Usage", "`!addacc <rsn1>, <rsn2>, ...` or `!removeacc <rsn1>, <rsn2>, ...`");
 	  }
 
-	  // ADD / DEL
-	  const rsn = args.join(" ").trim();
-	  if (!rsn) {
-		return sendEmbed(msg.channel, "⚠️ Usage", "`!addacc <rsn>` or `!removeacc <rsn>`");
-	  }
 	  accounts[myId] = accounts[myId] || [];
+
 	  if (cmd === "!addacc") {
-		if (!accounts[myId].includes(rsn.toLowerCase())) {
-		  accounts[myId].push(rsn.toLowerCase());
+		for (const rsn of names) {
+		  const key = rsn.toLowerCase();
+		  if (!accounts[myId].includes(key)) {
+			accounts[myId].push(key);
+		  }
 		}
 	  } else {
-		accounts[myId] = accounts[myId].filter(x => x !== rsn.toLowerCase());
+		// remove any matching
+		const toRemove = names.map(n => n.toLowerCase());
+		accounts[myId] = accounts[myId].filter(x => !toRemove.includes(x));
 	  }
+
 	  saveData();
+
 	  return sendEmbed(
 		msg.channel,
-		cmd === "!addacc" ? "➕ Account Added" : "➖ Account Removed",
+		cmd === "!addacc" ? "➕ Account(s) Added" : "➖ Account(s) Removed",
 		`You now have ${accounts[myId].length} linked account(s).`
 	  );
 	}
+
 
     // ── !lootboard ────────────────────────────────────────────────
     if (cmd === "!lootboard") {
