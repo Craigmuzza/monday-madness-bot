@@ -751,11 +751,11 @@ client.on(Events.MessageCreate, async msg => {
 	  );
 	}
 
-		// ── !addacct / !delacct / !listacct ───────────────────────────────
-	if (cmd === "!addacct" || cmd === "!delacct" || cmd === "!listacct") {
+		// ── !addacc / !removeacc / !listacc ───────────────────────────────
+	if (cmd === "!addacc" || cmd === "!removeacc" || cmd === "!listacc") {
 	  const myId = msg.author.id;
 	  // LIST
-	  if (cmd === "!listacct") {
+	  if (cmd === "!listacc") {
 		const list = accounts[myId] || [];
 		const desc = list.length
 		  ? list.map((r,i)=>`${i+1}. ${r}`).join("\n")
@@ -766,10 +766,10 @@ client.on(Events.MessageCreate, async msg => {
 	  // ADD / DEL
 	  const rsn = args.join(" ").trim();
 	  if (!rsn) {
-		return sendEmbed(msg.channel, "⚠️ Usage", "`!addacct <rsn>` or `!delacct <rsn>`");
+		return sendEmbed(msg.channel, "⚠️ Usage", "`!addacc <rsn>` or `!removeacc <rsn>`");
 	  }
 	  accounts[myId] = accounts[myId] || [];
-	  if (cmd === "!addacct") {
+	  if (cmd === "!addacc") {
 		if (!accounts[myId].includes(rsn.toLowerCase())) {
 		  accounts[myId].push(rsn.toLowerCase());
 		}
@@ -779,7 +779,7 @@ client.on(Events.MessageCreate, async msg => {
 	  saveData();
 	  return sendEmbed(
 		msg.channel,
-		cmd === "!addacct" ? "➕ Account Added" : "➖ Account Removed",
+		cmd === "!addacc" ? "➕ Account Added" : "➖ Account Removed",
 		`You now have ${accounts[myId].length} linked account(s).`
 	  );
 	}
@@ -1238,7 +1238,7 @@ if (cmd === "!bounty") {
   return showUsage();
 }
 
-	   // ── !help ───────────────────────────────────────────────────
+	// ── !help ───────────────────────────────────────────────────
 	if (lc === "!help") {
 	  const help = new EmbedBuilder()
 		.setTitle("🛠 Robo-Rat Help")
@@ -1253,11 +1253,18 @@ if (cmd === "!bounty") {
 		  { name: "Raglist", value:"`!raglist` - View raglist\n`!raglist add <name>` - Add player to raglist\n`!raglist remove <name>` - Remove player from raglist", inline:false },
 		  { name: "Bounty", value:
 			  "`!bounty list`\n" +
-			  "`!bounty add  <name> <amount> [@user]`   – one‑shot\n" +
+			  "`!bounty add  <name> <amount> [@user]`   – one-shot\n" +
 			  "`!bounty addp <name> <amount> [@user]`  – persistent\n" +
-			  "`!bounty remove <name> <amount>`   – reduce one‑shot\n" +
+			  "`!bounty remove <name> <amount>`   – reduce one-shot\n" +
 			  "`!bounty removep <name> <amount>`  – reduce persistent",
-			  inline: false },
+			inline: false
+		  },
+		  { name: "Accounts", value:
+			  "`!addacc <rsn>`   – Link one of your RSNs to your Discord ID\n" +
+			  "`!removeacc <rsn>` – Unlink an RSN\n" +
+			  "`!listacc`        – Show your linked RSNs",
+			inline: false
+		  },
 		  { name: "Misc", value:"`!help`", inline:false }
 		]);
 	  return msg.channel.send({ embeds: [help] });
