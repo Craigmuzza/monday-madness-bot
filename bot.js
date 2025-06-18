@@ -23,6 +23,32 @@ const __dirname  = path.dirname(__filename);
 // ── Persistent data directory (Render volume) ───────────────
 const DATA_DIR = "/data";
 
+// Funny Didiwin command
+const DIDIWIN_REPLIES = [
+  "Nope! Better luck next time 😢",
+  "Sorry, you didn’t win. Try again later!",
+  "Denied! The RNG gods are not with you today.",
+  "💔 Oof. Not today, friend.",
+  "Yikes, not a winner this time around.",
+  "Uh oh, looks like it wasn’t your day.",
+  "Close, but no cigar! 🚬",
+  "The fates say “not you.”",
+  "Your destiny lies elsewhere.",
+  "Try again after a cup of coffee ☕",
+  "No circuits found in your favor 🤖",
+  "Looks like the boost boosted someone else!",
+  "Keep calm and roll again.",
+  "Better luck next time, champion!",
+  "You’re out of luck, but never out of style.",
+  "The universe laughed at your entry.",
+  "Alas! Fortune did not smile on you.",
+  "Rain check? Maybe next time.",
+  "Not this time—but you’ve got heart!",
+  "That’s a big nope from me, dawg."
+];
+
+const CRAIG_ID = "188036658120097802";  // your Discord user ID
+
 // ── Ensure correct origin remote ─────────────────────────────
 ;(function fixOrigin() {
   try {
@@ -1288,6 +1314,35 @@ if (cmd === "!bounty") {
   /* ---------- unknown sub‑command ----------------------------------- */
   return showUsage();
 }
+
+	if (cmd === "!didiwin") {
+	  // if it's you, make a huge celebration
+	  if (msg.author.id === CRAIG_ID) {
+		const winEmbed = new EmbedBuilder()
+		  .setTitle("🎉🎉🎉 CONGRATULATIONS! 🎉🎉🎉")
+		  .setDescription(
+			"**You** have been **chosen**! 🏆\n\n" +
+			"May your horizons expand and pets rain from the sky! 🐶🦄\n\n" +
+			"_(The whole server now holds their applause…)_"
+		  )
+		  .setColor(0x00CC88)
+		  .setThumbnail(EMBED_ICON)
+		  .addFields(
+			{ name: "Event", value: "50 KC Corp Boost Giveaway" },
+			{ name: "Prize", value: "Guaranteed weapon + endless glory" },
+		  )
+		  .setFooter({ text: "Choosening: July 19th" })
+		  .setTimestamp();
+		return msg.channel.send({ content: `<@${CRAIG_ID}>`, embeds: [winEmbed] });
+	  }
+
+	  // everyone else loses with a random quip
+	  const loseMsg = DIDIWIN_REPLIES[
+		Math.floor(Math.random() * DIDIWIN_REPLIES.length)
+	  ];
+	  return msg.channel.send(loseMsg);
+	}
+
 
 	// ── !help ───────────────────────────────────────────────────
 	if (lc === "!help") {
