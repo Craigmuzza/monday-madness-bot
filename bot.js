@@ -1355,6 +1355,49 @@ if (cmd === "!winner") {
   return msg.channel.send(`🎉 **WINNER:** ${winner} 🎉`);
 }
 
+// ── !losers ────────────────────────────────────────────────────
+if (cmd === "!losers") {
+  const losers = [
+    "Kidd Menace / WackusBonkas",
+    "Craigmuzza",
+    "Length",
+    "BALLlSTARD",
+    "Craterdemon",
+    "Rat McRat",
+    "quid",
+    "Jonathan",
+    "Trancing",
+    "Ranging ass",
+    "e v a",
+    "BADMANPURP",
+    "KeepItReal",
+    "Laz0r",
+    "Huncho",
+    "p w n s",
+    "OG Kurd",
+    "Bailisted",
+    "Rogue Bomber",
+    "Cauly"
+  ];
+
+  const listLines = losers
+    .map((name, i) => `${i + 1}. **${name}**`)
+    .join("\n");
+
+  const embed = new EmbedBuilder()
+    .setTitle("😂 Ha! LOSERS 🤡")
+    .setDescription(
+      "**Better luck never, LOOOOOSER!**\n\n" +
+      listLines
+    )
+    .setColor(0xFF0055)
+    .setFooter({ text: "Come back when you actually win 😉" })
+    .setTimestamp();
+
+  return msg.channel.send({ embeds: [embed] });
+}
+
+
 	// ── !help ───────────────────────────────────────────────────
 	if (lc === "!help") {
 	  const help = new EmbedBuilder()
