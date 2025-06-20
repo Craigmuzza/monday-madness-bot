@@ -23,30 +23,6 @@ const __dirname  = path.dirname(__filename);
 // ── Persistent data directory (Render volume) ───────────────
 const DATA_DIR = "/data";
 
-// ── Hard-coded giveaway entries ────────────────────────────────
-const GIVEAWAY_ENTRIES = [
-  "Kidd Menace / WackusBonkas",
-  "Craigmuzza",
-  "Length",
-  "BALLlSTARD",
-  "Craterdemon",
-  "Rat McRat",
-  "quid",
-  "Jonathan",
-  "Trancing",
-  "Ranging ass",
-  "e v a",
-  "BADMANPURP",
-  "FSGB/SINK RATE",
-  "KeepItReal",
-  "Laz0r",
-  "Huncho",
-  "p w n s",
-  "OG Kurd",
-  "Bailisted",
-  "Rogue Bomber",
-  "Cauly"
-];
 // ── Allowed users for !winner ───────────────────────────────────
 const ALLOWED_WINNERS = new Set([
   "188036658120097802",  // Craigmuzza
@@ -1319,30 +1295,65 @@ if (cmd === "!bounty") {
   return showUsage();
 }
 
-	// … inside your client.on(Events.MessageCreate, async msg => { … })
-	if (cmd === "!winner") {
-	  // 1) permission check
-	  if (!ALLOWED_WINNERS.has(msg.author.id)) {
-		return sendEmbed(
-		  msg.channel,
-		  "❌ Permission Denied",
-		  "Only the giveaway hosts can pick a winner."
-		);
-	  }
+// ── !winner ───────────────────────────────────────────────────
+if (cmd === "!winner") {
+  const invoker = msg.author.id;
+  const allowed = new Set([
+    "YOUR_DISCORD_ID_HERE",     // ← your ID
+    "1084233554134835291"       // ← Bueno
+  ]);
 
-	  // 2) pick one at random
-	  const pick = GIVEAWAY_ENTRIES[
-		Math.floor(Math.random() * GIVEAWAY_ENTRIES.length)
-	  ];
+  // if they’re not you or Bueno, insult and send them away
+  if (!allowed.has(invoker)) {
+    const awayLines = [
+      `<@${invoker}> you stink worse than week-old socks—now go take a hike.`,
+      `Hey <@${invoker}>, why don’t you vanish like my interest in you?`,
+      `<@${invoker}>, scrape yourself off my screen and hit the road.`,
+      `Did you fall out of the ugly tree, <@${invoker}>? Because nobody wants you here.`,
+      `Go count your toes elsewhere, <@${invoker}>—I don’t do audience seating.`,
+      `<@${invoker}>, pack up your ego and skedaddle.`,
+      `I’d ask you to leave politely, <@${invoker}>, but your face says it all.`,
+      `Be gone, <@${invoker}>—this isn’t the therapy group you need.`,
+      `Congrats, <@${invoker}>, you just unlocked “Ghosted” status. Scram!`,
+      `<@${invoker}>, you’re on mute. Permanently.`,
+      `<@${invoker}>, buzz off before I edit you right out of my life.`,
+      `Shoo, <@${invoker}>, before you overstimulate my eye-roll reflex.`,
+      `<@${invoker}>, if I wanted to ignore someone, I’d call your name.`,
+      `Take your nonsense elsewhere, <@${invoker}>—this party’s not for you.`,
+      `<@${invoker}>, go wrestle a porcupine—at least it’ll leave you alone after.`
+    ];
+    const line = awayLines[Math.floor(Math.random() * awayLines.length)];
+    return msg.channel.send(line);
+  }
 
-	  // 3) announce
-	  return sendEmbed(
-		msg.channel,
-		"🎉 Giveaway Winner 🎉",
-		`Congratulations, **${pick}**!`
-	  );
-	}
+  // otherwise pick a real winner
+  const pool = [
+    "Kidd Menace / WackusBonkas",
+    "Craigmuzza",
+    "Length",
+    "BALLlSTARD",
+    "Craterdemon",
+    "Rat McRat",
+    "quid",
+    "Jonathan",
+    "Trancing",
+    "Ranging ass",
+    "e v a",
+    "BADMANPURP",
+    "FSGB/SINK RATE",
+    "KeepItReal",
+    "Laz0r",
+    "Huncho",
+    "p w n s",
+    "OG Kurd",
+    "Bailisted",
+    "Rogue Bomber",
+    "Cauly"
+  ];
+  const winner = pool[Math.floor(Math.random() * pool.length)];
 
+  return msg.channel.send(`🎉 **WINNER:** ${winner} 🎉`);
+}
 
 	// ── !help ───────────────────────────────────────────────────
 	if (lc === "!help") {
