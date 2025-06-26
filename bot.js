@@ -635,70 +635,124 @@ client.on(Events.MessageCreate, async msg => {
 
   try {
     if (cmd === "!hiscores") {
+      // 1) parse period & optional RSN filter
       let period = "all";
       if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
         period = args.shift().toLowerCase();
       }
       const nameFilter = args.join(" ").toLowerCase() || null;
 
-	  const all = filterByPeriod(
-		killLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
-		period
-	);
-      const normal = all.filter(e => !e.isClan);
-      const clan   = all.filter(e => e.isClan);
-
-      // build boards
-      const makeBoard = arr => {
-        const counts = {};
-        arr.forEach(({ killer }) => {
-          const k = killer.toLowerCase();
-          if (nameFilter && k !== nameFilter) return;
-          counts[k] = (counts[k]||0) + 1;
+      // 2) invert accounts → rsnToDiscord map
+      const rsnToDiscord = {};
+      for (const [uid, rsns] of Object.entries(accounts)) {
+        rsns.forEach(rsn => {
+          rsnToDiscord[rsn.toLowerCase()] = uid;
         });
-        return Object.entries(counts)
-          .sort((a,b) => b[1] - a[1])
-          .slice(0,10)
-          .map(([n,v],i) => ({ rank:i+1, name:n, kills:v }));
-      };
+      }
 
-      const normalBoard = makeBoard(normal);
-      const clanBoard   = makeBoard(clan);
+      // 3) gather & period-slice killLog
+      const sliced = filterByPeriod(
+        killLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
+        period
+      );
+      const all = sliced.filter(e => !nameFilter || e.killer.toLowerCase() === nameFilter);
 
-      // send normal hiscores
+      // 4) sum kills by “owner” (Discord ID if linked, else RSN)
+      const sums = {};
+      all.forEach(({ killer }) => {
+        const key = killer.toLowerCase();
+        const owner = rsnToDiscord[key] || key;
+        sums[owner] = (sums[owner] || 0) + 1;
+      });
+
+      // 5) build top-10 normal board
+      const normalBoard = Object.entries(sums)
+        .sort((a,b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([owner, kills], i) => ({ rank: i+1, owner, kills }));
+
+      // 6) fetch any linked Discord members
+      const discordIds = [...new Set(
+        normalBoard.filter(r => /^\d+$/.test(r.owner)).map(r => r.owner)
+      )];
+      const discordMembers = {};
+      await Promise.all(discordIds.map(async id => {
+        try {
+          discordMembers[id] = await msg.guild.members.fetch(id);
+        } catch {}
+      }));
+
+      // 7) build the “normal” hiscores embed
       const e1 = new EmbedBuilder()
         .setTitle(`🏆 Hiscores (${period})`)
         .setColor(0xFF0000)
-		.setThumbnail(EMBED_ICON)
+        .setThumbnail(EMBED_ICON)
         .setTimestamp();
+
       if (!normalBoard.length) {
         e1.setDescription("No kills in that period.");
       } else {
-        normalBoard.forEach(r =>
-          e1.addFields({ name:`${r.rank}. ${r.name}`, value:`Kills: ${r.kills}`, inline:false })
-        );
+        normalBoard.forEach(r => {
+          let display;
+          if (/^\d+$/.test(r.owner) && discordMembers[r.owner]) {
+            const accs = accounts[r.owner] || [];
+            display = `${discordMembers[r.owner].displayName} (${accs.join(", ")})`;
+          } else {
+            display = r.owner;
+          }
+          e1.addFields({
+            name:  `${r.rank}. ${display}`,
+            value: `Kills: ${r.kills}`,
+            inline: false
+          });
+        });
       }
 
-      // collect embeds to send
       const embeds = [e1];
 
-      // only show clan board if we're in an event
+      // 8) if in an event, build the clan-only hiscores sub-board
       if (currentEvent !== "default") {
+        // 8a) sum only clan entries
+        const clanSums = {};
+        sliced.filter(e => e.isClan).forEach(({ killer }) => {
+          const key = killer.toLowerCase();
+          const owner = rsnToDiscord[key] || key;
+          clanSums[owner] = (clanSums[owner] || 0) + 1;
+        });
+        const clanBoard = Object.entries(clanSums)
+          .sort((a,b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([owner, kills], i) => ({ rank: i+1, owner, kills }));
+
         const e2 = new EmbedBuilder()
           .setTitle(`✨ Clan Hiscores (${period}) — Event: ${currentEvent}`)
           .setColor(0x00CC88)
-		  .setThumbnail(EMBED_ICON)
+          .setThumbnail(EMBED_ICON)
           .setTimestamp();
+
         if (!clanBoard.length) {
           e2.setDescription("No clan-vs-clan kills in that period.");
         } else {
-          clanBoard.forEach(r =>
-            e2.addFields({ name:`${r.rank}. ${r.name}`, value:`Kills: ${r.kills}`, inline:false })
-          );
+          clanBoard.forEach(r => {
+            let display;
+            if (/^\d+$/.test(r.owner) && discordMembers[r.owner]) {
+              const accs = accounts[r.owner] || [];
+              display = `${discordMembers[r.owner].displayName} (${accs.join(", ")})`;
+            } else {
+              display = r.owner;
+            }
+            e2.addFields({
+              name:  `${r.rank}. ${display}`,
+              value: `Kills: ${r.kills}`,
+              inline: false
+            });
+          });
         }
-        embeds.push(e2);
-	  }
 
+        embeds.push(e2);
+      }
+
+      // 9) finally send
       return msg.channel.send({ embeds });
     }
 
