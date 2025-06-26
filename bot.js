@@ -870,7 +870,9 @@ if (cmd === "!lootboard") {
     .map(([owner, gp], i) => ({ rank: i+1, owner, gp }));
 
   // 5b) fetch Discord members
-  const discordIds = [...new Set(board.filter(r=>/^\d+$/.test(r.owner)).map(r=>r.owner))];
+  const discordIds = [...new Set(
+    board.filter(r => /^\d+$/.test(r.owner)).map(r => r.owner)
+  )];
   const discordMembers = {};
   await Promise.all(discordIds.map(async id => {
     try {
@@ -910,7 +912,7 @@ if (cmd === "!lootboard") {
   if (currentEvent !== "default") {
     // 7a) sum only isClan entries
     const clanSums = {};
-    all.filter(e=>e.isClan).forEach(e => {
+    all.filter(e => e.isClan).forEach(e => {
       const key = rsnToDiscord[e.killer.toLowerCase()] || e.killer.toLowerCase();
       clanSums[key] = (clanSums[key] || 0) + e.gp;
     });
@@ -957,6 +959,7 @@ if (cmd === "!lootboard") {
     allowedMentions: { users: toMention }
   });
 }
+
 
       return msg.channel.send({ embeds });
     }
