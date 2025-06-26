@@ -833,29 +833,29 @@ client.on(Events.MessageCreate, async msg => {
 
 // ── !lootboard ────────────────────────────────────────────────
 if (cmd === "!lootboard") {
-  // 1) period & nameFilter as before
+  // 1) period & nameFilter
   let period = "all";
   if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
     period = args.shift().toLowerCase();
   }
   const nameFilter = args.join(" ").toLowerCase() || null;
 
-  // 2) invert your accounts map so rsn→discordId
+  // 2) invert accounts → rsnToDiscord
   const rsnToDiscord = {};
   for (const [uid, rsns] of Object.entries(accounts)) {
-    for (const rsn of rsns) {
+    rsns.forEach(rsn => {
       rsnToDiscord[rsn.toLowerCase()] = uid;
-    }
+    });
   }
 
-  // 3) gather & filter your raw lootLog
+  // 3) filter & period-slice raw lootLog
   const raw = lootLog.filter(e =>
     (currentEvent === "default" ? true : e.event === currentEvent) &&
     (!nameFilter || e.killer.toLowerCase() === nameFilter)
   );
   const all = filterByPeriod(raw, period);
 
-  // 4) sum GP by “owner” = discordId if linked, else by RSN
+  // 4) sum GP by “owner” (discordId if linked, else RSN)
   const sums = {};
   all.forEach(({ killer, gp }) => {
     const key = killer.toLowerCase();
@@ -863,78 +863,32 @@ if (cmd === "!lootboard") {
     sums[owner] = (sums[owner] || 0) + gp;
   });
 
-  // 5) turn into a sorted top-10 array
+  // 5) top-10 board
   const board = Object.entries(sums)
     .sort((a,b) => b[1] - a[1])
     .slice(0,10)
-    .map(([owner,gp],i) => {
-      const isUser = /^\d+$/.test(owner);
-      return {
-        rank: i+1,
-        owner,
-        display: isUser ? `<@${owner}>` : owner,
-        gp
-      };
-    });
-	
-   // 5b) fetch all Discord users involved as GuildMembers
-   const discordIds = [...new Set(
-     board.filter(r => /^\d+$/.test(r.owner))
-          .map(r => r.owner)
-   )];
-   const discordMembers = {};
-   await Promise.all(discordIds.map(async id => {
-     try {
-       // fetch from the guild so we can access displayName
-       const member = await msg.guild.members.fetch(id);
-       discordMembers[id] = member;
-     } catch {
-       /* ignore missing or left members */
-     } 
-   }));   
+    .map(([owner, gp], i) => ({ rank: i+1, owner, gp }));
 
-// 6) Build the normal lootboard embed
-const e1 = new EmbedBuilder()
-  .setTitle(`💰 Lootboard (${period})`)
-  .setColor(0xFF0000)
-  .setThumbnail(EMBED_ICON)
-  .setTimestamp();
+  // 5b) fetch Discord members
+  const discordIds = [...new Set(board.filter(r=>/^\d+$/.test(r.owner)).map(r=>r.owner))];
+  const discordMembers = {};
+  await Promise.all(discordIds.map(async id => {
+    try {
+      discordMembers[id] = await msg.guild.members.fetch(id);
+    } catch {}
+  }));
 
-if (!board.length) {
-  e1.setDescription("No loot in that period.");
-} else {
-  board.forEach(r => {
-    let display;
-    if (/^\d+$/.test(r.owner) && discordMembers[r.owner]) {
-      // this is a Discord‐linked row: show their nickname and all their RSNs
-      const accs = accounts[r.owner] || [];
-      display = `${discordMembers[r.owner].displayName} (${accs.join(", ")})`;
-    } else {
-      // just a raw RSN
-      display = r.owner;
-    }
-    e1.addFields({
-      name:  `${r.rank}. ${display}`,
-      value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
-      inline: false
-    });
-  });
-}
-
-const embeds = [e1];
-
-// 7) And your clan‐only board (if in an event)
-if (currentEvent !== "default") {
-  const e2 = new EmbedBuilder()
-    .setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
-    .setColor(0x00CC88)
+  // 6) build normal embed
+  const e1 = new EmbedBuilder()
+    .setTitle(`💰 Lootboard (${period})`)
+    .setColor(0xFF0000)
     .setThumbnail(EMBED_ICON)
     .setTimestamp();
 
-  if (!clanOnly.length) {
-    e2.setDescription("No clan-vs-clan loot in that period.");
+  if (!board.length) {
+    e1.setDescription("No loot in that period.");
   } else {
-    clanOnly.forEach(r => {
+    board.forEach(r => {
       let display;
       if (/^\d+$/.test(r.owner) && discordMembers[r.owner]) {
         const accs = accounts[r.owner] || [];
@@ -942,7 +896,7 @@ if (currentEvent !== "default") {
       } else {
         display = r.owner;
       }
-      e2.addFields({
+      e1.addFields({
         name:  `${r.rank}. ${display}`,
         value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
         inline: false
@@ -950,10 +904,51 @@ if (currentEvent !== "default") {
     });
   }
 
-  embeds.push(e2);
-}
+  const embeds = [e1];
 
-  // 8) send with allowedMentions so <@id> actually pings
+  // 7) build clanOnly if in an event
+  if (currentEvent !== "default") {
+    // 7a) sum only isClan entries
+    const clanSums = {};
+    all.filter(e=>e.isClan).forEach(e => {
+      const key = rsnToDiscord[e.killer.toLowerCase()] || e.killer.toLowerCase();
+      clanSums[key] = (clanSums[key] || 0) + e.gp;
+    });
+    const clanOnly = Object.entries(clanSums)
+      .sort(([,a],[,b]) => b - a)
+      .slice(0,10)
+      .map(([owner, gp], i) => ({ rank: i+1, owner, gp }));
+
+    // 7b) embed
+    const e2 = new EmbedBuilder()
+      .setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
+      .setColor(0x00CC88)
+      .setThumbnail(EMBED_ICON)
+      .setTimestamp();
+
+    if (!clanOnly.length) {
+      e2.setDescription("No clan-vs-clan loot in that period.");
+    } else {
+      clanOnly.forEach(r => {
+        let display;
+        if (/^\d+$/.test(r.owner) && discordMembers[r.owner]) {
+          const accs = accounts[r.owner] || [];
+          display = `${discordMembers[r.owner].displayName} (${accs.join(", ")})`;
+        } else {
+          display = r.owner;
+        }
+        e2.addFields({
+          name:  `${r.rank}. ${display}`,
+          value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
+          inline: false
+        });
+      });
+    }
+
+    embeds.push(e2);
+  }
+
+  // 8) finally send with allowedMentions
   const toMention = board
     .filter(r => /^\d+$/.test(r.owner))
     .map(r => r.owner);
@@ -961,6 +956,7 @@ if (currentEvent !== "default") {
     embeds,
     allowedMentions: { users: toMention }
   });
+}
 
       return msg.channel.send({ embeds });
     }
