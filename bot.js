@@ -958,8 +958,6 @@ if (cmd === "!lootboard") {
     embeds,
     allowedMentions: { users: toMention }
   });
-}
-
 
       return msg.channel.send({ embeds });
     }
