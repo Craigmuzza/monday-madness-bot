@@ -1086,18 +1086,13 @@ if (cmd === "!lootboard") {
 	}
 
 	// ── !addveng ────────────────────────────────────────────────
+// ── !addveng ────────────────────────────────────────────────
 if (cmd === "!addveng") {
-  // 1) Expect exactly one mention
-  const mention = args[0];
-  if (!mention || !mention.match(/^<@!?\d+>$/)) {
-    return sendEmbed(
-      msg.channel,
-      "⚠️ Usage",
-      "`!addveng @user`"
-    );
+  const rsn = args.join(" ").trim();
+  if (!rsn) {
+    return sendEmbed(msg.channel, "⚠️ Usage", "`!addveng <osrs username>`");
   }
 
-  // 2) Full list of “fuck right off, …” lines
   const insults = [
     "fuck right off, go choke on a bag of dicks.",
     "fuck right off, eat shit and wipe your ass with your ego.",
@@ -1116,7 +1111,6 @@ if (cmd === "!addveng") {
     "fuck right off, your brain’s so small I hear it rattling.",
     "fuck right off, go drown in a vat of your own bullshit.",
     "fuck right off, you’re a turd sandwich with extra constipation.",
-    "fuck right off, you rancid turd.",
     "fuck right off, you’ve got the personality of mildew.",
     "fuck right off, may your life be as pleasant as you are.",
     "fuck right off, you’re a flea on the ass of humanity.",
@@ -1133,7 +1127,7 @@ if (cmd === "!addveng") {
     "fuck right off, you’re a calamity of epic dumbfuck proportions.",
     "fuck right off, you’re about as welcome as herpes.",
     "fuck right off, eat my entire ass.",
-    "fuck right off, you’re the human footnote nobody reads.",
+    "fuck right off, you’re a footnote nobody reads.",
     "fuck right off, you’re an incompetent shitbag.",
     "fuck right off, may your hair never grow back.",
     "fuck right off, you’re a sad excuse for awful.",
@@ -1150,14 +1144,14 @@ if (cmd === "!addveng") {
     "fuck right off, you hook-nosed toad of malice.",
     "fuck right off, eat a bucket of rusty nails.",
     "fuck right off, you’re a walking tax on oxygen.",
-    "fuck right off, you miserable sack of shit.",
+    "fuck right off, you’re a miserable sack of shit.",
     "fuck right off, you’re as pointless as a screen door on a submarine.",
     "fuck right off, go crawl back under your rock.",
     "fuck right off, you’re a festering turd in the punch bowl of life.",
     "fuck right off, take your bullshit and shove it.",
     "fuck right off, you’re a fart in the wind.",
     "fuck right off, shut the fuck up and sit down.",
-    "fuck right off, you’re a rancid fart unfit for polite company.",
+    "fuck right off, you rancid fart unfit for polite company.",
     "fuck right off, go fuck yourself with a chainsaw.",
     "fuck right off, you’re a blight on the face of this planet.",
     "fuck right off, eat dirt and die.",
@@ -1180,13 +1174,18 @@ if (cmd === "!addveng") {
     "fuck right off, you’re a mindless sack of rotting flesh."
   ];
 
-  // 3) pick one at random
-  const line = insults[Math.floor(Math.random() * insults.length)];
+  const choice = insults[Math.floor(Math.random() * insults.length)];
+  const embed = new EmbedBuilder()
+    .setTitle(`👿 Vengeance for ${rsn}`)
+    .setDescription(`${msg.author} ${choice}`)
+    .setColor(0xCC0000)
+    .setTimestamp();
 
-  // 4) fire it off!
-  return msg.channel.send(`${mention} ${line}`);
+  return msg.channel.send({
+    embeds: [embed],
+    allowedMentions: { users: [msg.author.id] }
+  });
 }
-
 
     // ── !clanonly ────────────────────────────────────────────────
     if (lc === "!clanonly on") {
