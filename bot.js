@@ -1085,6 +1085,109 @@ if (cmd === "!lootboard") {
 	  }
 	}
 
+	// ── !addveng ────────────────────────────────────────────────
+if (cmd === "!addveng") {
+  // 1) Expect exactly one mention
+  const mention = args[0];
+  if (!mention || !mention.match(/^<@!?\d+>$/)) {
+    return sendEmbed(
+      msg.channel,
+      "⚠️ Usage",
+      "`!addveng @user`"
+    );
+  }
+
+  // 2) Full list of “fuck right off, …” lines
+  const insults = [
+    "fuck right off, go choke on a bag of dicks.",
+    "fuck right off, eat shit and wipe your ass with your ego.",
+    "fuck right off, I’d call you a tool but even they serve a purpose.",
+    "fuck right off, you’re a walking dumpster fire of stupidity.",
+    "fuck right off, take your worthless ass elsewhere.",
+    "fuck right off, you’re not worth the air you waste breathing.",
+    "fuck right off, you rancid pile of garbage.",
+    "fuck right off, you’re a mistake wrapped in a disaster.",
+    "fuck right off, your face could scare the shit out of a corpse.",
+    "fuck right off, go piss up a rope.",
+    "fuck right off, you’re a festering boil on the arse of society.",
+    "fuck right off, shove a cactus up your ass and ride it into traffic.",
+    "fuck right off, you’re about as sharp as a sack of wet noodles.",
+    "fuck right off, suck my fucking toes.",
+    "fuck right off, your brain’s so small I hear it rattling.",
+    "fuck right off, go drown in a vat of your own bullshit.",
+    "fuck right off, you’re a turd sandwich with extra constipation.",
+    "fuck right off, you rancid turd.",
+    "fuck right off, you’ve got the personality of mildew.",
+    "fuck right off, may your life be as pleasant as you are.",
+    "fuck right off, you’re a flea on the ass of humanity.",
+    "fuck right off, go take a long walk off a short pier.",
+    "fuck right off, you’re the human equivalent of a participation award.",
+    "fuck right off, I’d piss on you if you were on fire.",
+    "fuck right off, you’re a gaping wound of failure.",
+    "fuck right off, shut the fuck up, you fucking fuck.",
+    "fuck right off, your IQ’s lower than your shoe size.",
+    "fuck right off, go smell your own asshole.",
+    "fuck right off, you’re the reason God created double rainbows.",
+    "fuck right off, you’re a software update that never finishes.",
+    "fuck right off, go be irrelevant somewhere else.",
+    "fuck right off, you’re a calamity of epic dumbfuck proportions.",
+    "fuck right off, you’re about as welcome as herpes.",
+    "fuck right off, eat my entire ass.",
+    "fuck right off, you’re the human footnote nobody reads.",
+    "fuck right off, you’re an incompetent shitbag.",
+    "fuck right off, may your hair never grow back.",
+    "fuck right off, you’re a sad excuse for awful.",
+    "fuck right off, stop talking before you say something dumber.",
+    "fuck right off, you’re a waste of my free time.",
+    "fuck right off, go carve your own path—straight into a wall.",
+    "fuck right off, you’re a whiny cunt.",
+    "fuck right off, you’re as intimidating as a wet kitten.",
+    "fuck right off, you panty-sniffing weasel.",
+    "fuck right off, your existence is a typo.",
+    "fuck right off, you mutant of mediocrity.",
+    "fuck right off, you useless fuck.",
+    "fuck right off, go trip over your own stupidity.",
+    "fuck right off, you hook-nosed toad of malice.",
+    "fuck right off, eat a bucket of rusty nails.",
+    "fuck right off, you’re a walking tax on oxygen.",
+    "fuck right off, you miserable sack of shit.",
+    "fuck right off, you’re as pointless as a screen door on a submarine.",
+    "fuck right off, go crawl back under your rock.",
+    "fuck right off, you’re a festering turd in the punch bowl of life.",
+    "fuck right off, take your bullshit and shove it.",
+    "fuck right off, you’re a fart in the wind.",
+    "fuck right off, shut the fuck up and sit down.",
+    "fuck right off, you’re a rancid fart unfit for polite company.",
+    "fuck right off, go fuck yourself with a chainsaw.",
+    "fuck right off, you’re a blight on the face of this planet.",
+    "fuck right off, eat dirt and die.",
+    "fuck right off, you’re as graceful as a drunk elephant.",
+    "fuck right off, you soggy bottomed tart.",
+    "fuck right off, you’re a waste of neurons.",
+    "fuck right off, go suck on a lemon, asshole.",
+    "fuck right off, you’re a dumpster fire of epic idiocy.",
+    "fuck right off, you brain-dead twit.",
+    "fuck right off, you’re a flat tire on the road to everywhere.",
+    "fuck right off, you two-legged turd.",
+    "fuck right off, you’re a broken pencil—pointless.",
+    "fuck right off, go peel your skin off with a cheese grater.",
+    "fuck right off, you’re a cockroach in the banquet hall of civilization.",
+    "fuck right off, you rusty barnacle.",
+    "fuck right off, you’re a black hole of stupidity.",
+    "fuck right off, go drown yourself in a shallow puddle.",
+    "fuck right off, you’re the human equivalent of spam mail.",
+    "fuck right off, nap in a cactus patch.",
+    "fuck right off, you’re a mindless sack of rotting flesh."
+  ];
+
+  // 3) pick one at random
+  const line = insults[Math.floor(Math.random() * insults.length)];
+
+  // 4) fire it off!
+  return msg.channel.send(`${mention} ${line}`);
+}
+
+
     // ── !clanonly ────────────────────────────────────────────────
     if (lc === "!clanonly on") {
       clanOnlyMode = true; saveData();
