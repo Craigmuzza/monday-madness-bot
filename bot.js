@@ -211,7 +211,7 @@ function saveData() {
   }
 }
 
-/* ── Save & Load data ───────────────────────────────────────────────── */
+/* ── Save & Load data ───────────────────────────────────────────────── */
 function loadData() {
   try {
     if (!fs.existsSync(DATA_DIR)) {
@@ -496,7 +496,7 @@ app.post("/logKill", async (req, res) => {
   );
 });
 
-/* ───────────────────────────  RuneLite “dink” webhook  ────────────────────────── */
+/* ───────────────────────────  RuneLite "dink" webhook  ────────────────────────── */
 app.post(
   "/dink",
   upload.fields([
@@ -518,7 +518,7 @@ app.post(
       console.log(`[dink] seen by=${rsn}|msg=${msg}`);
 
 /* -----------------------------------------------------------------
-   Only process clan‑chat that comes from the clan “A Rat Pact”.
+   Only process clan‑chat that comes from the clan "A Rat Pact".
 ------------------------------------------------------------------ */
 if (
   data.type === "CHAT" &&
@@ -540,17 +540,17 @@ if (
     return res.status(204).end();
   }
 
-	// AUTO-REGISTER: add this player to `registered` if they're not already in it
-	const key = ci(rsn);
-	if (!registered.has(key)) {
-	  registered.add(key);
-	  saveData();                                 // write out registered.json
-	  console.log(`[auto-register] added "${key}"`);
-	}
-
   /* our clan — parse the loot message */
   const m = msg.match(LOOT_RE);
   if (m) {
+    // AUTO-REGISTER the killer (not the observer)
+    const killerKey = ci(m[1]);
+    if (!registered.has(killerKey)) {
+      registered.add(killerKey);
+      saveData();
+      console.log(`[auto-register] added killer "${killerKey}"`);
+    }
+
     return processLoot(
       m[1],                               // killer
       m[2],                               // victim
@@ -657,7 +657,7 @@ client.on(Events.MessageCreate, async msg => {
       );
       const all = sliced.filter(e => !nameFilter || e.killer.toLowerCase() === nameFilter);
 
-      // 4) sum kills by “owner” (Discord ID if linked, else RSN)
+      // 4) sum kills by "owner" (Discord ID if linked, else RSN)
       const sums = {};
       all.forEach(({ killer }) => {
         const key = killer.toLowerCase();
@@ -682,7 +682,7 @@ client.on(Events.MessageCreate, async msg => {
         } catch {}
       }));
 
-      // 7) build the “normal” hiscores embed
+      // 7) build the "normal" hiscores embed
       const e1 = new EmbedBuilder()
         .setTitle(`🏆 Hiscores (${period})`)
         .setColor(0xFF0000)
@@ -909,7 +909,7 @@ if (cmd === "!lootboard") {
   );
   const all = filterByPeriod(raw, period);
 
-  // 4) sum GP by “owner” (discordId if linked, else RSN)
+  // 4) sum GP by "owner" (discordId if linked, else RSN)
   const sums = {};
   all.forEach(({ killer, gp }) => {
     const key = killer.toLowerCase();
@@ -1096,46 +1096,46 @@ if (cmd === "!addveng") {
   const insults = [
     "fuck right off, go choke on a bag of dicks.",
     "fuck right off, eat shit and wipe your ass with your ego.",
-    "fuck right off, I’d call you a tool but even they serve a purpose.",
-    "fuck right off, you’re a walking dumpster fire of stupidity.",
+    "fuck right off, I'd call you a tool but even they serve a purpose.",
+    "fuck right off, you're a walking dumpster fire of stupidity.",
     "fuck right off, take your worthless ass elsewhere.",
-    "fuck right off, you’re not worth the air you waste breathing.",
+    "fuck right off, you're not worth the air you waste breathing.",
     "fuck right off, you rancid pile of garbage.",
-    "fuck right off, you’re a mistake wrapped in a disaster.",
+    "fuck right off, you're a mistake wrapped in a disaster.",
     "fuck right off, your face could scare the shit out of a corpse.",
     "fuck right off, go piss up a rope.",
-    "fuck right off, you’re a festering boil on the arse of society.",
+    "fuck right off, you're a festering boil on the arse of society.",
     "fuck right off, shove a cactus up your ass and ride it into traffic.",
-    "fuck right off, you’re about as sharp as a sack of wet noodles.",
+    "fuck right off, you're about as sharp as a sack of wet noodles.",
     "fuck right off, suck my fucking toes.",
-    "fuck right off, your brain’s so small I hear it rattling.",
+    "fuck right off, your brain's so small I hear it rattling.",
     "fuck right off, go drown in a vat of your own bullshit.",
-    "fuck right off, you’re a turd sandwich with extra constipation.",
-    "fuck right off, you’ve got the personality of mildew.",
+    "fuck right off, you're a turd sandwich with extra constipation.",
+    "fuck right off, you've got the personality of mildew.",
     "fuck right off, may your life be as pleasant as you are.",
-    "fuck right off, you’re a flea on the ass of humanity.",
+    "fuck right off, you're a flea on the ass of humanity.",
     "fuck right off, go take a long walk off a short pier.",
-    "fuck right off, you’re the human equivalent of a participation award.",
-    "fuck right off, I’d piss on you if you were on fire.",
-    "fuck right off, you’re a gaping wound of failure.",
+    "fuck right off, you're the human equivalent of a participation award.",
+    "fuck right off, I'd piss on you if you were on fire.",
+    "fuck right off, you're a gaping wound of failure.",
     "fuck right off, shut the fuck up, you fucking fuck.",
-    "fuck right off, your IQ’s lower than your shoe size.",
+    "fuck right off, your IQ's lower than your shoe size.",
     "fuck right off, go smell your own asshole.",
-    "fuck right off, you’re the reason God created double rainbows.",
-    "fuck right off, you’re a software update that never finishes.",
+    "fuck right off, you're the reason God created double rainbows.",
+    "fuck right off, you're a software update that never finishes.",
     "fuck right off, go be irrelevant somewhere else.",
-    "fuck right off, you’re a calamity of epic dumbfuck proportions.",
-    "fuck right off, you’re about as welcome as herpes.",
+    "fuck right off, you're a calamity of epic dumbfuck proportions.",
+    "fuck right off, you're about as welcome as herpes.",
     "fuck right off, eat my entire ass.",
-    "fuck right off, you’re a footnote nobody reads.",
-    "fuck right off, you’re an incompetent shitbag.",
+    "fuck right off, you're a footnote nobody reads.",
+    "fuck right off, you're an incompetent shitbag.",
     "fuck right off, may your hair never grow back.",
-    "fuck right off, you’re a sad excuse for awful.",
+    "fuck right off, you're a sad excuse for awful.",
     "fuck right off, stop talking before you say something dumber.",
-    "fuck right off, you’re a waste of my free time.",
+    "fuck right off, you're a waste of my free time.",
     "fuck right off, go carve your own path—straight into a wall.",
-    "fuck right off, you’re a whiny cunt.",
-    "fuck right off, you’re as intimidating as a wet kitten.",
+    "fuck right off, you're a whiny cunt.",
+    "fuck right off, you're as intimidating as a wet kitten.",
     "fuck right off, you panty-sniffing weasel.",
     "fuck right off, your existence is a typo.",
     "fuck right off, you mutant of mediocrity.",
@@ -1143,35 +1143,35 @@ if (cmd === "!addveng") {
     "fuck right off, go trip over your own stupidity.",
     "fuck right off, you hook-nosed toad of malice.",
     "fuck right off, eat a bucket of rusty nails.",
-    "fuck right off, you’re a walking tax on oxygen.",
-    "fuck right off, you’re a miserable sack of shit.",
-    "fuck right off, you’re as pointless as a screen door on a submarine.",
+    "fuck right off, you're a walking tax on oxygen.",
+    "fuck right off, you're a miserable sack of shit.",
+    "fuck right off, you're as pointless as a screen door on a submarine.",
     "fuck right off, go crawl back under your rock.",
-    "fuck right off, you’re a festering turd in the punch bowl of life.",
+    "fuck right off, you're a festering turd in the punch bowl of life.",
     "fuck right off, take your bullshit and shove it.",
-    "fuck right off, you’re a fart in the wind.",
+    "fuck right off, you're a fart in the wind.",
     "fuck right off, shut the fuck up and sit down.",
     "fuck right off, you rancid fart unfit for polite company.",
     "fuck right off, go fuck yourself with a chainsaw.",
-    "fuck right off, you’re a blight on the face of this planet.",
+    "fuck right off, you're a blight on the face of this planet.",
     "fuck right off, eat dirt and die.",
-    "fuck right off, you’re as graceful as a drunk elephant.",
+    "fuck right off, you're as graceful as a drunk elephant.",
     "fuck right off, you soggy bottomed tart.",
-    "fuck right off, you’re a waste of neurons.",
+    "fuck right off, you're a waste of neurons.",
     "fuck right off, go suck on a lemon, asshole.",
-    "fuck right off, you’re a dumpster fire of epic idiocy.",
+    "fuck right off, you're a dumpster fire of epic idiocy.",
     "fuck right off, you brain-dead twit.",
-    "fuck right off, you’re a flat tire on the road to everywhere.",
+    "fuck right off, you're a flat tire on the road to everywhere.",
     "fuck right off, you two-legged turd.",
-    "fuck right off, you’re a broken pencil—pointless.",
+    "fuck right off, you're a broken pencil—pointless.",
     "fuck right off, go peel your skin off with a cheese grater.",
-    "fuck right off, you’re a cockroach in the banquet hall of civilization.",
+    "fuck right off, you're a cockroach in the banquet hall of civilization.",
     "fuck right off, you rusty barnacle.",
-    "fuck right off, you’re a black hole of stupidity.",
+    "fuck right off, you're a black hole of stupidity.",
     "fuck right off, go drown yourself in a shallow puddle.",
-    "fuck right off, you’re the human equivalent of spam mail.",
+    "fuck right off, you're the human equivalent of spam mail.",
     "fuck right off, nap in a cactus patch.",
-    "fuck right off, you’re a mindless sack of rotting flesh."
+    "fuck right off, you're a mindless sack of rotting flesh."
   ];
 
   const choice = insults[Math.floor(Math.random() * insults.length)];
@@ -1261,7 +1261,7 @@ if (cmd === "!bounty") {
 
   /* ---------------------------------------------------------------
      Optional "@someone" (or "<@123456789>") right at the end.
-     If present, we’ll credit that user for the bounty.
+     If present, we'll credit that user for the bounty.
   ---------------------------------------------------------------- */
   let posterId = msg.author.id;          // default: command author
   let maybeMention = args[args.length - 1];   // look at last token
@@ -1273,7 +1273,7 @@ if (cmd === "!bounty") {
       posterId = m.groups.id;
       args.pop();                       // remove it from the arg list
     } else if (maybeMention.startsWith("@") && msg.guild) {
-      // a literal “@Name” — try to resolve in this guild
+      // a literal "@Name" — try to resolve in this guild
       const nick = maybeMention.slice(1).toLowerCase();
       const member = msg.guild.members.cache.find(
         m =>
@@ -1456,24 +1456,24 @@ if (cmd === "!winner") {
     "1084233554134835291"       // ← Bueno
   ]);
 
-  // if they’re not you or Bueno, insult and send them away
+  // if they're not you or Bueno, insult and send them away
   if (!allowed.has(invoker)) {
     const awayLines = [
       `<@${invoker}> you stink worse than week-old socks—now go take a hike.`,
-      `Hey <@${invoker}>, why don’t you vanish like my interest in you?`,
+      `Hey <@${invoker}>, why don't you vanish like my interest in you?`,
       `<@${invoker}>, scrape yourself off my screen and hit the road.`,
       `Did you fall out of the ugly tree, <@${invoker}>? Because nobody wants you here.`,
-      `Go count your toes elsewhere, <@${invoker}>—I don’t do audience seating.`,
+      `Go count your toes elsewhere, <@${invoker}>—I don't do audience seating.`,
       `<@${invoker}>, pack up your ego and skedaddle.`,
-      `I’d ask you to leave politely, <@${invoker}>, but your face says it all.`,
-      `Be gone, <@${invoker}>—this isn’t the therapy group you need.`,
-      `Congrats, <@${invoker}>, you just unlocked “Ghosted” status. Scram!`,
-      `<@${invoker}>, you’re on mute. Permanently.`,
+      `I'd ask you to leave politely, <@${invoker}>, but your face says it all.`,
+      `Be gone, <@${invoker}>—this isn't the therapy group you need.`,
+      `Congrats, <@${invoker}>, you just unlocked "Ghosted" status. Scram!`,
+      `<@${invoker}>, you're on mute. Permanently.`,
       `<@${invoker}>, buzz off before I edit you right out of my life.`,
       `Shoo, <@${invoker}>, before you overstimulate my eye-roll reflex.`,
-      `<@${invoker}>, if I wanted to ignore someone, I’d call your name.`,
-      `Take your nonsense elsewhere, <@${invoker}>—this party’s not for you.`,
-      `<@${invoker}>, go wrestle a porcupine—at least it’ll leave you alone after.`
+      `<@${invoker}>, if I wanted to ignore someone, I'd call your name.`,
+      `Take your nonsense elsewhere, <@${invoker}>—this party's not for you.`,
+      `<@${invoker}>, go wrestle a porcupine—at least it'll leave you alone after.`
     ];
     const line = awayLines[Math.floor(Math.random() * awayLines.length)];
     return msg.channel.send(line);
